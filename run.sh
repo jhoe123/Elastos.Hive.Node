@@ -47,7 +47,9 @@ $ sudo usermod -aG docker $(whoami)
         exit
     fi
 
-    cp .env.example .env
+    if [ ! -f ".env" ];then
+        cp .env.example .env
+    fi
 
     DID_MNEMONIC=$(grep 'DID_MNEMONIC' .env | sed 's/DID_MNEMONIC="//;s/"//')
     echo -n "Your DID MNEMONIC: "
@@ -67,7 +69,7 @@ $ sudo usermod -aG docker $(whoami)
     echo -n "Please input your DID MNEMONIC PASSPHRASE: "
     read DID_PASSPHRASE
     DID_PASSPHRASE=$(echo ${DID_PASSPHRASE})
-    [ "${DID_PASSPHRASE}" != "" ] && sed -i "/DID_PASSPHRASE/s/^.*$/DID_PASSPHRASE=${DID_PASSPHRASE}/" .env
+    sed -i "/DID_PASSPHRASE/s/^.*$/DID_PASSPHRASE=${DID_PASSPHRASE}/" .env
     echo -n "Please input your DID MNEMONIC SECRET: "
     read DID_STOREPASS
     DID_STOREPASS=$(echo ${DID_STOREPASS})
