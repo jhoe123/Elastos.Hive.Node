@@ -36,17 +36,20 @@ function setup_venv () {
 
 function start_docker () {
     echo "Running using docker..."
-    docker version > /dev/null
+    docker version > /dev/null 2>&1
     if [ ! $? -eq 0 ];then
         echo "You don't have docker installed. Please run the below commands to install docker"
         echo "
 $ curl -fsSL https://get.docker.com -o get-docker.sh
 $ sudo sh get-docker.sh
-$ sudo usermod -aG docker $(whoami)"
+$ sudo usermod -aG docker $(whoami)
+        "
         exit
     fi
 
-    cp .env.example .env
+    if [ ! -f ".env" ];then
+        cp .env.example .env
+    fi
 
     DID_MNEMONIC=$(grep 'DID_MNEMONIC' .env | sed 's/DID_MNEMONIC="//;s/"//')
     echo -n "Your DID MNEMONIC: "
@@ -66,7 +69,7 @@ $ sudo usermod -aG docker $(whoami)"
     echo -n "Please input your DID MNEMONIC PASSPHRASE: "
     read DID_PASSPHRASE
     DID_PASSPHRASE=$(echo ${DID_PASSPHRASE})
-    [ "${DID_PASSPHRASE}" != "" ] && sed -i "/DID_PASSPHRASE/s/^.*$/DID_PASSPHRASE=${DID_PASSPHRASE}/" .env
+    sed -i "/DID_PASSPHRASE/s/^.*$/DID_PASSPHRASE=${DID_PASSPHRASE}/" .env
     echo -n "Please input your DID MNEMONIC SECRET: "
     read DID_STOREPASS
     DID_STOREPASS=$(echo ${DID_STOREPASS})
@@ -89,7 +92,13 @@ $ sudo usermod -aG docker $(whoami)"
     echo -n "Checking... "
     sleep 5
     curl -s -X POST -H "Content-Type: application/json" -d '{"key":"value"}' http://localhost:5000/api/v1/echo > /dev/null
-    [ $? -eq 0 ] && echo -e "\033[;32m Success \033[0m" || echo -e "\033[;31m Failed \033[0m"
+    if [ $? -eq 0 ];then
+	    echo -e "\033[;32m Success \033[0m"
+            echo -n "You can now access your hive node service at "
+	    echo -e "\033[;36mhttp://0.0.0.0:5000\033[0m"
+    else
+	    echo -e "\033[;31m Failed \033[0m"
+    fi
 }
 
 function start_direct () {
