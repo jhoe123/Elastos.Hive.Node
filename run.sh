@@ -4,6 +4,7 @@ function start_db () {
     docker container list --all | grep hive-mongo > /dev/null \
               && docker container stop hive-mongo > /dev/null \
               && docker container rm -f hive-mongo > /dev/null
+    echo -n "Hive-mongo Container: "
     docker run -d --name hive-mongo                     \
         --network hive                                  \
         -v ${PWD}/.mongodb-data:/data/db                \
@@ -75,6 +76,8 @@ $ sudo usermod -aG docker $(whoami)
     DID_STOREPASS=$(echo ${DID_STOREPASS})
     [ "${DID_STOREPASS}" != "" ] && sed -i "/DID_STOREPASS/s/^.*$/DID_STOREPASS=${DID_STOREPASS}/" .env
 
+    sed -i "/MONGO_HOST/s/^.*$/MONGO_HOST=hive-mongo/" .env
+    sed -i "/MONGO_PORT/s/^.*$/MONGO_PORT=27017/" .env
 
     docker network ls | grep hive > /dev/null || docker network create hive
     start_db
@@ -82,6 +85,7 @@ $ sudo usermod -aG docker $(whoami)
               && docker container stop hive-node > /dev/null \
               && docker container rm -f hive-node > /dev/null
     docker build -t elastos/hive-node . > /dev/null
+    echo -n "Hive-node Container: "
     docker run -d --name hive-node  \
       --network hive                \
       -v ${PWD}/.data:/src/data     \
