@@ -4,12 +4,12 @@ function start_db () {
     docker container list --all | grep hive-mongo > /dev/null \
               && docker container stop hive-mongo > /dev/null \
               && docker container rm -f hive-mongo > /dev/null
-    echo -n "Hive-mongo Container: "
+    echo -n "Hive-Mongo Container: "
     docker run -d --name hive-mongo                     \
-        --network hive                                  \
+        --network hive-service                          \
         -v ${PWD}/.mongodb-data:/data/db                \
         -p 27020:27017                                  \
-        mongo:4.4.0
+        mongo:4.4.0 | cut -c -9
 }
 
 function setup_venv () {
@@ -81,19 +81,19 @@ $ sudo usermod -aG docker $(whoami)
     sed -i "/MONGO_HOST/s/^.*$/MONGO_HOST=hive-mongo/" .env
     sed -i "/MONGO_PORT/s/^.*$/MONGO_PORT=27017/" .env
 
-    docker network ls | grep hive > /dev/null || docker network create hive
+    docker network ls | grep hive-service > /dev/null || docker network create hive-service
     start_db
     docker container list --all | grep hive-node > /dev/null \
               && docker container stop hive-node > /dev/null \
               && docker container rm -f hive-node > /dev/null
     docker build -t elastos/hive-node . > /dev/null
-    echo -n "Hive-node Container: "
+    echo -n "Hive-Node Container: "
     docker run -d --name hive-node  \
-      --network hive                \
+      --network hive-service                \
       -v ${PWD}/.data:/src/data     \
       -v ${PWD}/.env:/src/.env      \
       -p 5000:5000                  \
-      elastos/hive-node
+      elastos/hive-node | cut -c -9
     echo -n "Checking."
     timeout=0
     while true; do
