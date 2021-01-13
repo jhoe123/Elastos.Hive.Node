@@ -9,7 +9,7 @@ function start_db () {
         --network hive                                  \
         -v ${PWD}/.mongodb-data:/data/db                \
         -p 27020:27017                                  \
-        mongo
+        mongo:4.4.0
 }
 
 function setup_venv () {
@@ -75,7 +75,9 @@ $ sudo usermod -aG docker $(whoami)
     read DID_STOREPASS
     DID_STOREPASS=$(echo ${DID_STOREPASS})
     [ "${DID_STOREPASS}" != "" ] && sed -i "/DID_STOREPASS/s/^.*$/DID_STOREPASS=${DID_STOREPASS}/" .env
-
+    
+    sed -i "/DID_RESOLVER/s/^.*$/DID_RESOLVER=http:\/\/api.elastos.io:20606/" .env
+    sed -i "/ELA_RESOLVER/s/^.*$/ELA_RESOLVER=http:\/\/api.elastos.io:20336/" .env
     sed -i "/MONGO_HOST/s/^.*$/MONGO_HOST=hive-mongo/" .env
     sed -i "/MONGO_PORT/s/^.*$/MONGO_PORT=27017/" .env
 
@@ -92,17 +94,27 @@ $ sudo usermod -aG docker $(whoami)
       -v ${PWD}/.env:/src/.env      \
       -p 5000:5000                  \
       elastos/hive-node
-    
-    echo -n "Checking... "
-    sleep 5
-    curl -s -X POST -H "Content-Type: application/json" -d '{"key":"value"}' http://localhost:5000/api/v1/echo > /dev/null
-    if [ $? -eq 0 ];then
-	    echo -e "\033[;32m Success \033[0m"
+    echo -n "Checking."
+    timeout=0
+    while true; do
+        curl -s -X POST -H "Content-Type: application/json" -d '{"key":"value"}' http://localhost:5000/api/v1/echo > /dev/null
+        if [ $? -eq 0 ];then
+	        echo -e "\033[;32m Success \033[0m"
             echo -n "You can now access your hive node service at "
-	    echo -e "\033[;36mhttp://0.0.0.0:5000\033[0m"
-    else
-	    echo -e "\033[;31m Failed \033[0m"
-    fi
+	        echo -e "\033[;36mhttp://0.0.0.0:5000\033[0m"
+            exit 0
+        else
+            if [ ${timeout} -gt 10 ];then
+	            echo -e "\033[;31m Failed \033[0m"
+                exit 1
+            else
+                sleep 1
+                echo -n "."
+                let timeout++
+            fi
+        fi
+    done
+    
 }
 
 function start_direct () {
@@ -134,6 +146,19 @@ function test () {
     pytest --disable-pytest-warnings -xs tests/hive_backup_test.py
 }
 
+function stop() {
+    hive_node=$(docker container list --all | grep hive-node | awk '{print $1}')
+    if [ -n "${hive_node}" ];then
+    	docker container stop ${hive_node}
+    	docker container rm ${hive_node}
+    fi
+    hive_mongo=$(docker container list --all | grep hive-mongo | awk '{print $1}')
+    if [ -n "${hive_mongo}" ];then
+    	docker container stop ${hive_mongo}
+    	docker container rm ${hive_mongo}
+    fi
+}
+
 case "$1" in
     direct)
         start_direct
@@ -143,6 +168,9 @@ case "$1" in
         ;;
     test)
         test
+        ;;
+    stop)
+        stop
         ;;
     *)
     echo "Usage: run.sh {docker|direct|test}"

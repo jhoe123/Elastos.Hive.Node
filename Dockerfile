@@ -10,8 +10,7 @@ ADD requirements.txt /src/
 
 WORKDIR /src
 
-RUN pip install -r requirements.txt && \
-    pip install gunicorn
+RUN pip install -r requirements.txt
 
 ADD . /src/
 
@@ -19,4 +18,4 @@ ENV LD_LIBRARY_PATH="/src/hive/util/did/"
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-b","0.0.0.0:5000","hive:create_app()"]
+CMD [ "python3", "manage.py",  "runserver", "--host", "0.0.0.0" ]
