@@ -97,7 +97,7 @@ sudo chmod +x elabox.sh
 sudo ./elabox.sh config
 #### Configure IPFS
 Access file /root/snap/ipfs/common/config.
-Add the following to json file and update the properties.
+Add the following to json file and update the property <your elabox ip>.
 ```json
   "API": {
     "HTTPHeaders": {

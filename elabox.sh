@@ -13,6 +13,8 @@ function config() {
     source .venv/bin/activate
     pip install --upgrade pip
     pip install -r requirements.txt
+    echo ''
+    echo 'Note: You might want to configure hive .env file. Also you may need to allow PORT 5000, IPFS node and proxy ports.'
 }
 
 # function that starts running the application
