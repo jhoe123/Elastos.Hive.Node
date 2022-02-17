@@ -93,8 +93,11 @@ http://your-hive-node-ip-address:5000/api/v1/hive/version
 
 ## Elabox Setup and Running
 #### Setup
+```
 sudo chmod +x elabox.sh
 sudo ./elabox.sh config
+```
+Note: You might want to configure hive .env file. If you firewall is turned on you may need to allow PORT 5000, IPFS node and proxy ports.
 #### Configure IPFS
 Access file /root/snap/ipfs/common/config.
 Add the following to json file and update the property <your elabox ip>.
@@ -120,8 +123,9 @@ For Addresses:API and  Addresses:Gateway properties make sure values are
     "Gateway": "/ip4/0.0.0.0/tcp/5003"
 ```
 #### Running
+```
 sudo ./elabox.sh run
-
+```
 ## Thanks
 
 Sincerely thanks to all teams and projects that we rely on directly or indirectly.
