@@ -91,6 +91,36 @@ You also can open the Browser to input the following URL to see the version of t
 http://your-hive-node-ip-address:5000/api/v1/hive/version
 ```
 
+## Elabox Setup and Running
+#### Setup
+sudo chmod +x elabox.sh
+sudo ./elabox.sh setup
+#### Configure IPFS
+Access file /root/snap/ipfs/common/config.
+Add the following to json file and update the properties.
+```json
+  "API": {
+    "HTTPHeaders": {
+      "Access-Control-Allow-Methods": [
+        "PUT",
+        "POST"
+      ],
+      "Access-Control-Allow-Origin": [
+        "http://<your elabox ip>:5001",
+        "http://localhost:3000",
+        "http://127.0.0.1:5001",
+        "https://webui.ipfs.io"
+      ]
+    }
+  }
+```
+For Addresses:API and  Addresses:Gateway properties make sure values are
+```
+    "API": "/ip4/0.0.0.0/tcp/5001",
+    "Gateway": "/ip4/0.0.0.0/tcp/5003"
+```
+#### Running
+sudo ./elabox.sh run
 
 ## Thanks
 
