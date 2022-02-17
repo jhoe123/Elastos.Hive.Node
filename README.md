@@ -100,7 +100,7 @@ sudo ./elabox.sh config
 Note: You might want to configure hive .env file. If you firewall is turned on you may need to allow PORT 5000, IPFS node and proxy ports.
 #### Configure IPFS
 Access file /root/snap/ipfs/common/config.
-Add the following to json file and update the property <your elabox ip>.
+Add the following to json file and update the property <b>your elabox ip</b>.
 ```json
   "API": {
     "HTTPHeaders": {
