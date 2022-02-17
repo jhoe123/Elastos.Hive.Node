@@ -94,7 +94,7 @@ http://your-hive-node-ip-address:5000/api/v1/hive/version
 ## Elabox Setup and Running
 #### Setup
 sudo chmod +x elabox.sh
-sudo ./elabox.sh setup
+sudo ./elabox.sh config
 #### Configure IPFS
 Access file /root/snap/ipfs/common/config.
 Add the following to json file and update the properties.

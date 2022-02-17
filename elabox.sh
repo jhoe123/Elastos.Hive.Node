@@ -3,8 +3,11 @@
 # function that install and configure the dependencies
 function config() {
     echo 'Y' | sudo apt install python3 python3-venv pip libffi-dev mongodb
-    #sudo snap install ipfs
-
+    # check if not file exists install ipfs
+    if [ ! -f /root/snap/ipfs/common/config ]; then
+        snap install ipfs
+    fi
+    
     # python setup
     python3 -m venv .venv
     source .venv/bin/activate
@@ -15,7 +18,12 @@ function config() {
 # function that starts running the application
 function run() {
     ipfs daemon &
-    LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    LD_LIBRARY_PATH="$PWD/hive/util/did/" 
+    python manage.py runserver --host 0.0.0.0
 }
 
 
