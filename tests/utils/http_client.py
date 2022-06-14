@@ -1,23 +1,77 @@
 # -*- coding: utf-8 -*-
+import os
+from pathlib import Path
 
 import requests
 import json
 import logging
 
-from src.utils_v1.did.eladid import ffi, lib
 from src.utils.singleton import Singleton
-from tests.utils_v1.hive_auth_test_v1 import DApp, DIDApp
-from tests.utils_v1 import test_common
+from src.utils.did.did_wrapper import JWT
+from tests.utils_v1.hive_auth_test_v1 import AppDID, UserDID
+
+
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+
+
+class TokenCache:
+    enabled = True
+
+    # tokens cache for every user did.
+
+    @staticmethod
+    def get_token_cache_file_path(did: str):
+        return os.path.join(BASE_DIR, f'../../data/{did.split(":")[2]}')
+
+    @staticmethod
+    def save_token(did: str, token):
+        if not TokenCache.enabled:
+            return
+        with open(TokenCache.get_token_cache_file_path(did), 'w') as f:
+            f.write(token)
+            f.flush()
+
+    @staticmethod
+    def get_token(did: str):
+        if not TokenCache.enabled:
+            return ''
+        token_file = TokenCache.get_token_cache_file_path(did)
+        if not Path(token_file).exists():
+            return ''
+        with open(token_file, 'r') as f:
+            return f.read()
+
+    # the node did of the connected hive node.
+
+    @staticmethod
+    def get_node_did_file_path():
+        return os.path.join(BASE_DIR, '../../data/node_did')
+
+    @staticmethod
+    def save_node_did(node_did):
+        if not TokenCache.enabled:
+            return
+        with open(TokenCache.get_node_did_file_path(), 'w') as f:
+            f.write(node_did)
+            f.flush()
+
+    @staticmethod
+    def get_node_did():
+        if not TokenCache.enabled:
+            return ''
+        file_path = TokenCache.get_node_did_file_path()
+        if not Path(file_path).exists():
+            return ''
+        with open(file_path, 'r') as f:
+            return f.read()
 
 
 class TestConfig(metaclass=Singleton):
     def __init__(self):
-        self.url_vault = 'http://localhost:5000'
-        self.url_backup = 'http://localhost:5000'
-        # self.url_vault = 'https://hive-testnet1.trinity-tech.io'
-        # self.url_backup = 'https://hive-testnet2.trinity-tech.io'
-        self.node_did_cache = dict()
-        self.token_cache = dict()
+        hive_port = os.environ.get('HIVE_PORT', 5000)
+        print(f'HIVE_PORT={hive_port}')
+        self.url_vault = f'http://localhost:{hive_port}'
+        self.url_backup = self.url_vault
 
     @property
     def host_url(self):
@@ -27,46 +81,30 @@ class TestConfig(metaclass=Singleton):
     def backup_url(self):
         return self.url_backup
 
-    def save_token(self, base_url, user_did, token):
-        self.token_cache[self._get_key_for_token_cache(base_url, user_did)] = token
-
-    def get_token(self, base_url, user_did):
-        return self.token_cache.get(self._get_key_for_token_cache(base_url, user_did))
-
-    def _get_key_for_token_cache(self, base_url, user_did):
-        return f'{user_did}@{base_url}'
-
-    def save_node_did(self, base_url, node_did):
-        self.node_did_cache[base_url] = node_did
-
-    def get_node_did(self, base_url):
-        return self.node_did_cache.get(base_url)
-
 
 class RemoteResolver:
-    def __init__(self, http_client, is_did2=False):
+    def __init__(self, http_client, is_did2=False, is_owner=False):
         """ For HttpClient and only manage DIDs. """
-        self.user_did = DIDApp("didapp", "firm dash language credit twist puzzle crouch order slim now issue trap")
-        self.user_did2 = DIDApp("crossUser",
-                                "stage west lava group genre ten farm pony small family february drink")
-        self.app_did = DApp("testapp", test_common.app_id,
-                            "chimney limit involve fine absent topic catch chalk goat era suit leisure")
+        # did: did:elastos:imedtHyjLS155Gedhv7vKP3FTWjpBUAUm4
+        self.user_did = UserDID("didapp", "firm dash language credit twist puzzle crouch order slim now issue trap")
+        self.user_did2 = UserDID("crossUser", "stage west lava group genre ten farm pony small family february drink")
+        self.owner_did = self.user_did
+        self.app_did = AppDID("testapp", "chimney limit involve fine absent topic catch chalk goat era suit leisure")
         self.test_config = TestConfig()
         self.http_client = http_client
         self.is_did2 = is_did2
+        self.is_owner = is_owner
 
     def get_token(self):
         user_did = self.get_current_user_did()
-        # TODO:
-        # token = self.test_config.get_token(self.http_client.base_url, user_did)
-        # if not token:
-        #     token = self.__get_remote_token(user_did)
-        #     self.test_config.save_token(self.http_client.base_url, user_did, token)
-        token = self.__get_remote_token(user_did)
+        token = TokenCache.get_token(user_did.get_did_string())
+        if not token:
+            token = self._get_remote_token(user_did)
+            TokenCache.save_token(user_did.get_did_string(), token)
         return token
 
     def get_current_user_did(self):
-        return self.user_did2 if self.is_did2 else self.user_did
+        return self.owner_did if self.is_owner else (self.user_did2 if self.is_did2 else self.user_did)
 
     def get_current_user_did_str(self):
         return self.get_current_user_did().get_did_string()
@@ -74,53 +112,42 @@ class RemoteResolver:
     def get_user_did_str(self):
         return self.user_did.get_did_string()
 
-    def __get_remote_token(self, did: DIDApp):
+    def _get_remote_token(self, did: UserDID):
         return self.auth(self.sign_in(), did)
 
-    def get_node_did(self):
-        node_did = self.test_config.get_node_did(self.http_client.base_url)
+    def get_node_did(self) -> str:
+        node_did = TokenCache.get_node_did()
         if node_did:
             return node_did
 
-        # get from the result of sign_in()
         challenge = self.sign_in()
-        jws = lib.DefaultJWSParser_Parse(challenge.encode())
-        assert jws, f'Cannot get challenge for node did: {ffi.string(lib.DIDError_GetLastErrorMessage()).decode()}'
-        node_did = self.__get_issuer_by_challenge2(jws)
-        lib.JWT_Destroy(jws)
-        return node_did
+        return self._get_issuer_by_challenge(JWT.parse(challenge))
 
-    def __get_issuer_by_challenge2(self, jws):
-        node_did = ffi.string(lib.JWT_GetIssuer(jws)).decode()
-        assert node_did, 'Invalid hive did'
-        self.test_config.save_node_did(self.http_client.base_url, node_did)
+    def _get_issuer_by_challenge(self, jwt: JWT):
+        node_did = str(jwt.get_issuer())
+        TokenCache.save_node_did(node_did)
         return node_did
 
     def sign_in(self):
-        doc_c = lib.DIDStore_LoadDID(self.app_did.store, self.app_did.did)
-        doc_str = ffi.string(lib.DIDDocument_ToJson(doc_c, True)).decode()
-        doc = json.loads(doc_str)
+        doc = json.loads(self.app_did.doc.to_json())
         response = self.http_client.post('/api/v2/did/signin', {"id": doc}, need_token=False, is_skip_prefix=True)
         assert response.status_code == 201
         return response.json()["challenge"]
 
-    def __get_auth_token_by_challenge(self, challenge, did: DIDApp):
-        jws = lib.DefaultJWSParser_Parse(challenge.encode())
-        assert jws, f'Cannot get challenge: {ffi.string(lib.DIDError_GetLastErrorMessage()).decode()}'
-        aud = ffi.string(lib.JWT_GetAudience(jws)).decode()
-        assert aud == self.app_did.get_did_string()
-        nonce = ffi.string(lib.JWT_GetClaim(jws, "nonce".encode())).decode()
-        hive_did = self.__get_issuer_by_challenge2(jws)
-        lib.JWT_Destroy(jws)
+    def _get_auth_token_by_challenge(self, challenge, did: UserDID):
+        jwt = JWT.parse(challenge)
+        assert jwt.get_audience() == self.app_did.get_did_string()
+        nonce = jwt.get_claim('nonce')
+        hive_did = self._get_issuer_by_challenge(jwt)
 
         # auth
         vc = did.issue_auth(self.app_did)
-        vp_json = self.app_did.create_presentation(vc, nonce, hive_did)
+        vp_json = self.app_did.create_presentation_str(vc, nonce, hive_did)
         return self.app_did.create_vp_token(vp_json, "DIDAuthResponse", hive_did, 60)
 
-    def auth(self, challenge, did: DIDApp):
-        auth_token = self.__get_auth_token_by_challenge(challenge, did)
-        response = self.http_client.post('/api/v2/did/auth', {"challenge_response": auth_token},
+    def auth(self, challenge, did: UserDID):
+        challenge_response = self._get_auth_token_by_challenge(challenge, did)
+        response = self.http_client.post('/api/v2/did/auth', {"challenge_response": challenge_response},
                                          need_token=False, is_skip_prefix=True)
         assert response.status_code == 201
         return response.json()["token"]
@@ -130,7 +157,7 @@ class RemoteResolver:
         vc = self.get_current_user_did().issue_backup_auth(self.get_node_did(),
                                                            self.test_config.backup_url,
                                                            backup_node_did)
-        return ffi.string(lib.Credential_ToString(vc, True)).decode()
+        return str(vc)
 
 
 def _log_http_request(func):
@@ -143,13 +170,12 @@ def _log_http_request(func):
 
 
 class HttpClient:
-    def __init__(self, prefix_url='', is_did2=False, is_backup_node=False):
+    def __init__(self, prefix_url='', is_did2=False, is_owner=False, is_backup_node=False):
         """ For user and only manage vault or backup url accessing. """
         test_config = TestConfig()
         self.base_url = test_config.host_url if not is_backup_node else test_config.backup_url
         self.prefix_url = prefix_url if prefix_url else ''
-        self.is_did2 = is_did2
-        self.remote_resolver = RemoteResolver(self, is_did2)
+        self.remote_resolver = RemoteResolver(self, is_did2, is_owner)
         logging.debug(f'HttpClient.base_url: {self.base_url}')
 
     def __get_url(self, relative_url, is_skip_prefix=False):

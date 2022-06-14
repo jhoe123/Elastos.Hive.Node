@@ -1,11 +1,9 @@
 import json
 import logging
 import shutil
-from datetime import datetime
-from time import time
 from io import BytesIO
 
-from hive.util.did.eladid import ffi, lib
+from src.utils.did.eladid import ffi, lib
 
 from hive.util.constants import DID_INFO_TOKEN
 from hive.util.did_info import get_did_info_by_did_appid
@@ -18,8 +16,8 @@ app_id = "appid"
 did2 = "did:elastos:ioLFi22fodmFUAFKia6uTV2W8Jz9vEcQyP"
 app_id2 = "appid2"
 # nonce = "c4211de6-e297-11ea-9bab-acde48001122"
-token = "eyJhbGciOiAiRVMyNTYiLCAidHlwIjogIkpXVCIsICJ2ZXJzaW9uIjogIjEuMCIsICJraWQiOiAiZGlkOmVsYXN0b3M6aWpVbkQ0S2VScGVCVUZtY0VEQ2JoeE1USlJ6VVlDUUNaTSNwcmltYXJ5In0.eyJpc3MiOiJkaWQ6ZWxhc3RvczppalVuRDRLZVJwZUJVRm1jRURDYmh4TVRKUnpVWUNRQ1pNIiwic3ViIjoiQWNjZXNzVG9rZW4iLCJhdWQiOiJkaWQ6ZWxhc3RvczppZGZwS0pKMXNvRHhUMkdjZ0NSbkR0M2N1OTRabkdmek5YIiwiZXhwIjoyNzUyNzM5NzIwNSwicHJvcHMiOiJ7XCJhcHBEaWRcIjogXCJhcHBpZFwiLCBcInVzZXJEaWRcIjogXCJkaWQ6ZWxhc3RvczppajhrckFWUkppdFpLSm1jQ3Vmb0xIUWpxN01lZjNaalROXCIsIFwibm9uY2VcIjogXCI1NDRiZTNjNi0zOTAzLTExZWItYWY0OC1hY2RlNDgwMDExMjJcIn0ifQ.xGqGT-doIWrsQyynv0DVq6YzTDyHpJrYQghX0dgLYe6qNXZ3jhq5QQPKKVFQhY3QwdANnn8Dr_2xbL8WuKZeuA"
-token2 = "eyJhbGciOiAiRVMyNTYiLCAidHlwIjogIkpXVCIsICJ2ZXJzaW9uIjogIjEuMCIsICJraWQiOiAiZGlkOmVsYXN0b3M6aWpVbkQ0S2VScGVCVUZtY0VEQ2JoeE1USlJ6VVlDUUNaTSNwcmltYXJ5In0.eyJpc3MiOiJkaWQ6ZWxhc3RvczppalVuRDRLZVJwZUJVRm1jRURDYmh4TVRKUnpVWUNRQ1pNIiwic3ViIjoiQWNjZXNzVG9rZW4iLCJhdWQiOiJkaWQ6ZWxhc3RvczppZTFNNkpKNFpmVHZhYTZONEJ0blJZQzE5OUFncjZpaHptIiwiZXhwIjoyNzUyNzM5NzM2OSwicHJvcHMiOiJ7XCJhcHBEaWRcIjogXCJhcHBpZDJcIiwgXCJ1c2VyRGlkXCI6IFwiZGlkOmVsYXN0b3M6aWo4a3JBVlJKaXRaS0ptY0N1Zm9MSFFqcTdNZWYzWmpUTlwiLCBcIm5vbmNlXCI6IFwiYjdhMDNiZGUtMzkwMy0xMWViLThlM2QtYWNkZTQ4MDAxMTIyXCJ9In0.XLj98LePKgSvb7asOns4tOqauHETaDOSv-L4qkcYxrDOM9f4wrHS13gOV8Zi0v2Vw9p7ynKLRFM7Vt1ijW6-Kg"
+token = "eyJhbGciOiAiRVMyNTYiLCAidHlwIjogIkpXVCIsICJ2ZXJzaW9uIjogIjEuMCIsICJraWQiOiAiZGlkOmVsYXN0b3M6aXBVR0JQdUFnRXg2TGU5OWY0VHlEZk5adFhWVDJOS1hQUiNwcmltYXJ5In0.eyJpc3MiOiJkaWQ6ZWxhc3RvczppcFVHQlB1QWdFeDZMZTk5ZjRUeURmTlp0WFZUMk5LWFBSIiwic3ViIjoiQWNjZXNzVG9rZW4iLCJhdWQiOiJkaWQ6ZWxhc3Rvczppb0xGaTIyZm9kbUZVQUZLaWE2dVRWMlc4Sno5dkVjUXlQIiwiZXhwIjoxNjUxOTE3MzgzLCJwcm9wcyI6IntcImFwcERpZFwiOiBcImFwcGlkXCIsIFwidXNlckRpZFwiOiBcImRpZDplbGFzdG9zOmlqOGtyQVZSSml0WktKbWNDdWZvTEhRanE3TWVmM1pqVE5cIiwgXCJub25jZVwiOiBcImY2YThjOWJjLWI2NTgtMTFlYy04MmYxLWFjZGU0ODAwMTEyMlwifSJ9.oojoHi9aXFs5MqtP4RViqHB4lsNMIPBj89pOJRwIvqxYhdSzrRmd0WbphnVfO8MaKPCfjbhn_f8Hx5mVZhR4ZA"
+token2 = "eyJhbGciOiAiRVMyNTYiLCAidHlwIjogIkpXVCIsICJ2ZXJzaW9uIjogIjEuMCIsICJraWQiOiAiZGlkOmVsYXN0b3M6aXBVR0JQdUFnRXg2TGU5OWY0VHlEZk5adFhWVDJOS1hQUiNwcmltYXJ5In0.eyJpc3MiOiJkaWQ6ZWxhc3RvczppcFVHQlB1QWdFeDZMZTk5ZjRUeURmTlp0WFZUMk5LWFBSIiwic3ViIjoiQWNjZXNzVG9rZW4iLCJhdWQiOiJkaWQ6ZWxhc3Rvczppb0xGaTIyZm9kbUZVQUZLaWE2dVRWMlc4Sno5dkVjUXlQIiwiZXhwIjoxNjUxOTI1MDI5LCJwcm9wcyI6IntcImFwcERpZFwiOiBcImFwcGlkMlwiLCBcInVzZXJEaWRcIjogXCJkaWQ6ZWxhc3RvczppajhrckFWUkppdFpLSm1jQ3Vmb0xIUWpxN01lZjNaalROXCIsIFwibm9uY2VcIjogXCJiOWE5MmQzOC1iNjZhLTExZWMtYjQ5Ny1hY2RlNDgwMDExMjJcIn0ifQ.SRWdFUC7ZpFS1oZloD4fjcT1VPH6ueUEZElLMgcLabgomxJwm6KS5Cb6j-IMHEbJ9AxraqrT3Q7hi_11I1j_Xg"
 
 
 def setup_test_auth_token():
@@ -67,7 +65,7 @@ def remove_test_vault(did):
 
 def test_auth_common(self, user_did, app_did):
     # sign_in
-    doc = lib.DIDStore_LoadDID(app_did.store, app_did.did)
+    doc = lib.DIDStore_LoadDID(app_did.get_did_store(), app_did.get_did())
     doc_str = ffi.string(lib.DIDDocument_ToJson(doc, True)).decode()
     logging.getLogger("test_auth_common").debug(f"\ndoc_str: {doc_str}")
     doc = json.loads(doc_str)
@@ -93,7 +91,7 @@ def test_auth_common(self, user_did, app_did):
 
     # auth
     vc = user_did.issue_auth(app_did)
-    vp_json = app_did.create_presentation(vc, nonce, hive_did)
+    vp_json = app_did.create_presentation_str(vc, nonce, hive_did)
     auth_token = app_did.create_vp_token(vp_json, "DIDAuthResponse", hive_did, 60)
     # print(auth_token)
     logging.getLogger("test_auth_common").debug(f"\nauth_token: {auth_token}")
@@ -133,7 +131,7 @@ def test_auth_common(self, user_did, app_did):
     return token, hive_did
 
 
-def create_upload_file(self, file_name, data):
+def create_upload_file(self, client, file_name, data):
     temp = BytesIO()
     temp.write(data.encode(encoding="utf-8"))
     temp.seek(0)
@@ -141,15 +139,13 @@ def create_upload_file(self, file_name, data):
 
     upload_file_url = "/api/v1/files/upload/" + file_name
     r2, s = self.parse_response(
-        self.test_client.post(upload_file_url,
-                              data=temp,
-                              headers=self.upload_auth)
+        client.post(upload_file_url, data=temp, headers=self.upload_auth)
     )
     self.assert200(s)
     self.assertEqual(r2["_status"], "OK")
 
     r3, s = self.parse_response(
-        self.test_client.get('/api/v1/files/properties?path=' + file_name, headers=self.auth)
+        client.get('/api/v1/files/properties?path=' + file_name, headers=self.auth)
     )
 
     self.assert200(s)

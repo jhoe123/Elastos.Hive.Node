@@ -9,16 +9,14 @@ from bson import ObjectId, json_util
 from pymongo import MongoClient
 
 from src.settings import hive_setting
-from src.utils.consts import BACKUP_FILE_SUFFIX
+from src.utils.http_exception import BadRequestException
 from src.utils_v1.constants import DATETIME_FORMAT
-from src.utils_v1.common import did_tail_part, create_full_path_dir
+from src.utils_v1.common import did_tail_part
 
 
 def create_db_client():
     """ Create the instance of the MongoClient by the setting MONGO_TYPE. """
-    if hive_setting.is_mongodb_atlas():
-        return MongoClient(hive_setting.MONGO_HOST)
-    return MongoClient(hive_setting.MONGO_HOST, hive_setting.MONGO_PORT)
+    return MongoClient(hive_setting.MONGODB_URI)
 
 
 def convert_oid(query, update=False):
@@ -38,26 +36,30 @@ def convert_oid(query, update=False):
     return new_query
 
 
-def options_filter(content, args):
+def options_filter(body, args):
     ops = dict()
-    if "options" not in content:
+    if not body or "options" not in body:
         return ops
-    options = content["options"]
+    options = body["options"]
     for arg in args:
         if arg in options:
             ops[arg] = options[arg]
     return ops
 
 
-def gene_sort(sort_para):
+def options_pop_timestamp(request_body):
+    if "options" not in request_body:
+        return True
+    return request_body.get('options').pop('timestamp', True)
+
+
+def gene_sort(sorts_src):
     sorts = list()
-    if isinstance(sort_para, list):
-        for sort in sort_para:
-            for field in sort.keys():
-                sorts.append((field, sort[field]))
-    elif isinstance(sort_para, dict):
-        for field in sort_para.keys():
-            sorts.append((field, sort_para[field]))
+    if isinstance(sorts_src, list):
+        # same as mongodb
+        sorts.extend(sorts_src)
+    elif isinstance(sorts_src, dict):
+        sorts.extend(sorts_src.items())
     return sorts
 
 
@@ -126,18 +128,17 @@ def query_count_documents(col, content, options):
         return None, f"Exception: method: 'query_count_documents', Err: {str(e)}"
 
 
-def populate_options_find_many(content):
-    options = options_filter(content, ("projection",
-                                       "skip",
-                                       "limit",
-                                       "sort",
-                                       "allow_partial_results",
-                                       "return_key",
-                                       "show_record_id",
-                                       "batch_size"))
+def populate_find_options_from_body(body):
+    options = options_filter(body, ("projection",
+                                    "skip",
+                                    "limit",
+                                    "sort",
+                                    "allow_partial_results",
+                                    "return_key",
+                                    "show_record_id",
+                                    "batch_size"))
     if "sort" in options:
-        sorts = gene_sort(options["sort"])
-        options["sort"] = sorts
+        options["sort"] = gene_sort(options["sort"])
     return options
 
 
@@ -175,7 +176,7 @@ def gene_mongo_db_name(did, app_did):
 
 
 def get_user_database_prefix():
-    return 'hive_user_db_' if not hive_setting.is_mongodb_atlas() else 'hu_'
+    return 'hive_user_db_' if not hive_setting.ATLAS_ENABLED else 'hu_'
 
 
 def get_collection(did, app_did, collection):
@@ -213,57 +214,23 @@ def get_save_mongo_db_path(did):
     return path.resolve()
 
 
-def export_mongo_db(did, app_did):
-    """ Export every database as tar file to folder HIVE_DATA/vaults/<did>/mongo_db """
-    save_path = get_save_mongo_db_path(did)
-    if not save_path.exists():
-        if not create_full_path_dir(save_path):
-            return False
-
-    # dump the data of the database 'db_name' to file 'dump_file'
-    db_name = gene_mongo_db_name(did, app_did)
-    from src.utils.db_client import cli
-    if not cli.is_database_exists(db_name):
-        return False
-
-    return export_mongo_db_to_full_path(db_name, (save_path / db_name).with_suffix(BACKUP_FILE_SUFFIX))
+def dump_mongodb_to_full_path(db_name, full_path: Path):
+    try:
+        line2 = f'mongodump --uri="{hive_setting.MONGODB_URI}" -d {db_name} --archive="{full_path.as_posix()}"'
+        subprocess.check_output(line2, shell=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        raise BadRequestException(msg=f'Failed to dump database {db_name}: {e.output}')
 
 
-def export_mongo_db_to_full_path(db_name, full_path: Path):
-    if hive_setting.is_mongodb_atlas():
-        line2 = f"mongodump --uri={hive_setting.MONGO_HOST} -d {db_name}" \
-                f" --archive='{full_path.as_posix()}'"
-    else:
-        line2 = f"mongodump -h {hive_setting.MONGO_HOST} --port {hive_setting.MONGO_PORT} -d {db_name}" \
-                f" --archive='{full_path.as_posix()}'"
-    ret_code = subprocess.call(line2, shell=True)
-    return ret_code == 0
+def restore_mongodb_from_full_path(full_path: Path):
+    if not full_path.exists():
+        raise BadRequestException(msg=f'Failed to import mongo db by invalid full dir {full_path.as_posix()}')
 
-
-def import_mongo_db(did):
-    """ same as import_mongodb """
-    save_path = get_save_mongo_db_path(did)
-    if not save_path.exists():
-        return False
-
-    # restore the data of the database from every 'dump_file'.
-    dump_files = [x for x in save_path.iterdir() if x.suffix == BACKUP_FILE_SUFFIX]
-    for dump_file in dump_files:
-        result = import_mongo_db_by_full_path(dump_file)
-        if not result:
-            return False
-    return True
-
-
-def import_mongo_db_by_full_path(full_path: Path):
-    if hive_setting.is_mongodb_atlas():
-        line2 = f"mongorestore --uri={hive_setting.MONGO_HOST}" \
-                f" --drop --archive='{full_path.as_posix()}'"
-    else:
-        line2 = f"mongorestore -h {hive_setting.MONGO_HOST} --port {hive_setting.MONGO_PORT}" \
-                f" --drop --archive='{full_path.as_posix()}'"
-    ret_code = subprocess.call(line2, shell=True)
-    return ret_code == 0
+    try:
+        line2 = f'mongorestore --uri="{hive_setting.MONGODB_URI}" --drop --archive="{full_path.as_posix()}"'
+        subprocess.check_output(line2, shell=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        raise BadRequestException(msg=f'Failed to load database by {full_path.as_posix()}: {e.output}')
 
 
 def delete_mongo_db_export(did):

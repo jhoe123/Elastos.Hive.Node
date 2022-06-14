@@ -1,8 +1,3 @@
-"""
-Comes from hive folder.
-TODO: need refine this file later after v1 APIs have been removed.
-"""
-
 from pathlib import Path
 from decouple import config, Config, RepositoryEnv
 import logging
@@ -17,125 +12,127 @@ class HiveSetting:
         self.env_config = config
 
     def init_config(self, hive_config='/etc/hive/.env'):
-        env_dist = os.environ
-        if "HIVE_CONFIG" in env_dist:
-            hive_config = env_dist["HIVE_CONFIG"]
+        hive_config = os.environ.get('HIVE_CONFIG', hive_config)
         config_file = Path(hive_config).resolve()
         if config_file.exists():
             self.env_config = Config(RepositoryEnv(config_file.as_posix()))
-            logging.getLogger("Setting").debug("Config file is:" + config_file.as_posix())
-            print("Setting Config file is:" + config_file.as_posix())
+            logging.info(f'User defined config file: {config_file.as_posix()}')
 
     @property
-    def DID_RESOLVER(self):
-        return self.env_config('DID_RESOLVER', default="https://api-testnet.elastos.io/newid", cast=str)
+    def EID_RESOLVER_URL(self):
+        return self.env_config('EID_RESOLVER_URL', default='https://api.elastos.io/eid', cast=str)
 
     @property
-    def ELA_RESOLVER(self):
-        return self.env_config('ELA_RESOLVER', default="https://api-testnet.elastos.io/ela", cast=str)
+    def ESC_RESOLVER_URL(self):
+        return self.env_config('ESC_RESOLVER_URL', default='https://api.elastos.io/ela', cast=str)
 
     @property
-    def DID_MNEMONIC(self):
-        return self.env_config('DID_MNEMONIC',
-                               default="advance duty suspect finish space matter squeeze elephant twenty over stick shield",
-                               cast=str)
+    def SERVICE_DID(self):
+        return self.env_config('SERVICE_DID', default='', cast=str)
 
     @property
-    def DID_PASSPHRASE(self):
-        return self.env_config('DID_PASSPHRASE', default="", cast=str)
+    def PASSPHRASE(self):
+        return self.env_config('PASSPHRASE', default='', cast=str)
 
     @property
-    def DID_STOREPASS(self):
-        return self.env_config('DID_STOREPASS', default="password", cast=str)
+    def PASSWORD(self):
+        return self.env_config('PASSWORD', default='password', cast=str)
 
     @property
-    def HIVE_DATA(self):
-        value = self.env_config('HIVE_DATA', default="./data", cast=str)
+    def NODE_CREDENTIAL(self):
+        return self.env_config('NODE_CREDENTIAL', default='', cast=str)
+
+    @property
+    def DATA_STORE_PATH(self):
+        value = self.env_config('DATA_STORE_PATH', default='./data', cast=str)
         if value.startswith('/'):
             return value
         return os.path.join(BASE_DIR, value)
 
     @property
     def VAULTS_BASE_DIR(self):
-        return self.HIVE_DATA + "/vaults"
+        return self.DATA_STORE_PATH + '/vaults'
 
     @property
     def BACKUP_VAULTS_BASE_DIR(self):
-        return self.HIVE_DATA + "/backup_vaults"
+        return self.DATA_STORE_PATH + '/backup_vaults'
 
     @property
     def DID_DATA_BASE_DIR(self):
-        return self.HIVE_DATA + "/did"
+        return self.DATA_STORE_PATH + '/did'
 
     @property
     def DID_DATA_LOCAL_DIDS(self):
-        return self.DID_DATA_BASE_DIR + "/localdids"
+        return self.DID_DATA_BASE_DIR + '/localdids'
 
     @property
     def DID_DATA_STORE_PATH(self):
-        return self.DID_DATA_BASE_DIR + "/store"
+        return self.DID_DATA_BASE_DIR + '/store'
 
     @property
     def DID_DATA_CACHE_PATH(self):
-        return self.DID_DATA_BASE_DIR + "/cache"
+        return self.DID_DATA_BASE_DIR + '/cache'
 
     @property
-    def BACKUP_FTP_PORT(self):
-        return self.env_config('BACKUP_FTP_PORT', default=2121, cast=int)
+    def SENTRY_ENABLED(self):
+        return self.env_config('SENTRY_ENABLED', default='False', cast=bool)
 
     @property
-    def BACKUP_FTP_MASQUERADE_ADDRESS(self):
-        return self.env_config('BACKUP_FTP_MASQUERADE_ADDRESS', default="0.0.0.0", cast=str)
+    def SENTRY_DSN(self):
+        return self.env_config('SENTRY_DSN', default='', cast=str)
 
     @property
-    def BACKUP_FTP_PASSIVE_PORTS_START(self):
-        return self.env_config('BACKUP_FTP_PASSIVE_PORTS_START', default=8301, cast=int)
+    def PAYMENT_ENABLED(self):
+        return self.env_config('PAYMENT_ENABLED', default='True', cast=bool)
 
     @property
-    def BACKUP_FTP_PASSIVE_PORTS_END(self):
-        return self.env_config('BACKUP_FTP_PASSIVE_PORTS_END', default=8400, cast=int)
-
-    @property
-    def MONGO_TYPE(self):
-        return self.env_config('MONGO_TYPE', default="", cast=str)
-
-    @property
-    def MONGO_URI(self):
-        """ TODO: to be removed """
-        return self.env_config('MONGO_URI', default="", cast=str)
-
-    @property
-    def MONGO_PASSWORD(self):
-        """ TODO: to be removed """
-        return self.env_config('MONGO_PASSWORD', default="", cast=str)
-
-    @property
-    def MONGO_HOST(self):
-        return self.env_config('MONGO_HOST', default="localhost", cast=str)
-
-    @property
-    def MONGO_PORT(self):
-        return self.env_config('MONGO_PORT', default=27020, cast=int)
-
-    def is_mongodb_atlas(self):
-        return self.MONGO_TYPE == 'atlas'
-
-    @property
-    def RCLONE_CONFIG_FILE_DIR(self):
-        return self.env_config('RCLONE_CONFIG_FILE_DIR', default="./.rclone", cast=str)
-
-    @property
-    def HIVE_PAYMENT_CONFIG(self):
-        name = self.env_config('HIVE_PAYMENT_CONFIG', default='./payment_config.json', cast=str)
+    def PAYMENT_PATH(self):
+        name = self.env_config('PAYMENT_PATH', default='./payment_config.json', cast=str)
         return os.path.join(BASE_DIR, name)
 
     @property
-    def HIVE_PAYMENT_ADDRESS(self):
-        return self.env_config('HIVE_PAYMENT_ADDRESS', default='', cast=str)
+    def PAYMENT_ADDRESS(self):
+        return self.env_config('PAYMENT_ADDRESS', default='EN9YK69ScA6WFgVQW3UZcmSRLSCStaU2pQ', cast=str)
 
     @property
-    def HIVE_SENTRY_DSN(self):
-        return self.env_config('HIVE_SENTRY_DSN', default="", cast=str)
+    def ATLAS_ENABLED(self):
+        return self.env_config('ATLAS_ENABLED', default='False', cast=bool)
+
+    @property
+    def MONGODB_URI(self):
+        return self.env_config('MONGODB_URI', default='mongodb://hive-mongo:27017', cast=str)
+
+    @property
+    def IPFS_NODE_URL(self):
+        return self.env_config('IPFS_NODE_URL', default='http://hive-ipfs:5001', cast=str)
+
+    @property
+    def IPFS_GATEWAY_URL(self):
+        return self.env_config('IPFS_GATEWAY_URL', default='http://hive-ipfs:8080', cast=str)
+
+    @property
+    def ENABLE_CORS(self):
+        return self.env_config('ENABLE_CORS', default='True', cast=bool)
+
+    @property
+    def VERSION(self):
+        return self.env_config('VERSION', default='2.4.1', cast=str)
+
+    @property
+    def LAST_COMMIT(self):
+        return self.env_config('LAST_COMMIT', default='1dcc9178c12efefc786bc653bacec50a1f79161b', cast=str)
+
+    @property
+    def NODE_NAME(self):
+        return self.env_config('NODE_NAME', default='', cast=str)
+
+    @property
+    def NODE_EMAIL(self):
+        return self.env_config('NODE_EMAIL', default='', cast=str)
+
+    @property
+    def NODE_DESCRIPTION(self):
+        return self.env_config('NODE_DESCRIPTION', default='', cast=str)
 
     @property
     def AUTH_CHALLENGE_EXPIRED(self):
@@ -146,40 +143,8 @@ class HiveSetting:
         return 30 * 24 * 60 * 60
 
     @property
-    def HIVE_VERSION(self):
-        return self.env_config('HIVE_VERSION', default="0.0.0", cast=str)
-
-    @property
-    def HIVE_COMMIT_HASH(self):
-        return self.env_config('HIVE_COMMIT_HASH', default="", cast=str)
-
-    @property
-    def LANGUAGE(self):
-        return "english"
-
-    @property
-    def ENABLE_IPFS(self):
-        return self.env_config('ENABLE_IPFS', default='False', cast=bool)
-
-    @property
-    def IPFS_NODE_URL(self):
-        return self.env_config('IPFS_NODE_URL', default='', cast=str)
-
-    @property
-    def IPFS_PROXY_URL(self):
-        return self.env_config('IPFS_PROXY_URL', default='', cast=str)
-
-    @property
-    def PAYMENT_CHECK_EXPIRED(self):
-        return self.env_config('PAYMENT_CHECK_EXPIRED', default='True', cast=bool)
-
-    @property
     def BACKUP_IS_SYNC(self):
         return self.env_config('BACKUP_IS_SYNC', default='False', cast=bool)
-
-    @property
-    def ENABLE_CORS(self):
-        return self.env_config('ENABLE_CORS', default='False', cast=bool)
 
 
 hive_setting = HiveSetting()

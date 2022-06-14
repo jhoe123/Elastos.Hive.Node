@@ -4,36 +4,34 @@
 Http client for backup or other modules.
 """
 import pickle
-from datetime import datetime
 from pathlib import Path
 
 import requests
 
-from src.utils_v1.flask_rangerequest import RangeRequest
 from src.utils.file_manager import fm
-from src.utils.http_exception import InvalidParameterException, FileNotFoundException
+from src.utils.http_exception import BadRequestException
 
 
 class HttpClient:
     def __init__(self):
         self.timeout = 30
 
-    def _check_status_code(self, r, expect_code):
+    def __check_status_code(self, r, expect_code):
         if r.status_code != expect_code:
-            raise InvalidParameterException(msg=f'[HttpClient] Failed to {r.request.method} ({r.request.url}) '
-                                                f'with status code: {r.status_code}, {r.text}')
+            raise BadRequestException(msg=f'[HttpClient] Failed to {r.request.method} ({r.request.url}) '
+                                          f'with status code: {r.status_code}, {r.text}')
 
-    def _raise_http_exception(self, url, method, e):
-        raise InvalidParameterException(msg=f'[HttpClient] Failed to {method} ({url}) with exception: {str(e)}')
+    def __raise_http_exception(self, url, method, e):
+        raise BadRequestException(msg=f'[HttpClient] Failed to {method} ({url}) with exception: {str(e)}')
 
     def get(self, url, access_token, is_body=True, **kwargs):
         try:
             headers = {"Content-Type": "application/json", "Authorization": "token " + access_token}
             r = requests.get(url, headers=headers, timeout=self.timeout, **kwargs)
-            self._check_status_code(r, 200)
+            self.__check_status_code(r, 200)
             return r.json() if is_body else r
         except Exception as e:
-            self._raise_http_exception(url, 'GET', e)
+            self.__raise_http_exception(url, 'GET', e)
 
     def get_to_file(self, url, access_token, file_path: Path):
         r = self.get(url, access_token, is_body=False, stream=True)
@@ -48,10 +46,10 @@ class HttpClient:
                 headers['Content-Type'] = 'application/json'
             r = requests.post(url, headers=headers, json=body, timeout=self.timeout, **kwargs) \
                 if is_json else requests.post(url, headers=headers, data=body, timeout=self.timeout, **kwargs)
-            self._check_status_code(r, success_code)
+            self.__check_status_code(r, success_code)
             return r.json() if is_body else r
         except Exception as e:
-            self._raise_http_exception(url, 'POST', e)
+            self.__raise_http_exception(url, 'POST', e)
 
     def post_file(self, url, access_token, file_path: str):
         with open(file_path, 'rb') as f:
@@ -69,10 +67,10 @@ class HttpClient:
         try:
             headers = {"Authorization": "token " + access_token}
             r = requests.put(url, headers=headers, data=body, timeout=self.timeout)
-            self._check_status_code(r, 200)
+            self.__check_status_code(r, 200)
             return r.json() if is_body else r
         except Exception as e:
-            self._raise_http_exception(url, 'PUT', e)
+            self.__raise_http_exception(url, 'PUT', e)
 
     def put_file(self, url, access_token, file_path: Path):
         with open(file_path.as_posix(), 'br') as f:
@@ -82,22 +80,6 @@ class HttpClient:
         try:
             headers = {"Authorization": "token " + access_token}
             r = requests.delete(url, headers=headers, timeout=self.timeout)
-            self._check_status_code(r, 204)
+            self.__check_status_code(r, 204)
         except Exception as e:
-            self._raise_http_exception(url, 'DELETE', e)
-
-
-class HttpServer:
-    def __init__(self):
-        pass
-
-    def create_range_request(self, file_path: Path):
-        if not file_path.exists() or not file_path.is_file():
-            raise FileNotFoundException(msg='Failed to get file for creating range request object.')
-
-        with open(file_path.as_posix(), 'rb') as f:
-            etag = RangeRequest.make_etag(f)
-        return RangeRequest(open(file_path.as_posix(), 'rb'),
-                            etag=etag,
-                            last_modified=datetime.utcnow(),
-                            size=file_path.stat().st_size).make_response()
+            self.__raise_http_exception(url, 'DELETE', e)

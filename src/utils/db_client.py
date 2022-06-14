@@ -3,27 +3,18 @@
 """
 Any database operations can be found here.
 """
+import os
 import logging
-import subprocess
-from pathlib import Path
+from datetime import datetime
 
+from pymongo import MongoClient
 from pymongo.errors import CollectionInvalid
 
 from src.settings import hive_setting
-from src.utils.consts import BACKUP_FILE_SUFFIX, get_unique_dict_item_from_list
-
-from src.utils_v1.did_info import get_all_did_info_by_did
-from src.utils_v1.did_mongo_db_resource import gene_mongo_db_name, convert_oid, \
-    export_mongo_db, get_save_mongo_db_path, create_db_client, get_user_database_prefix
-from src.utils_v1.constants import DID_INFO_DB_NAME, VAULT_SERVICE_COL, VAULT_SERVICE_DID, DATETIME_FORMAT, \
-    USER_DID, APP_ID, DID_INFO_REGISTER_COL, APP_INSTANCE_DID
-from src.utils.http_exception import BadRequestException, AlreadyExistsException, \
-    VaultNotFoundException, CollectionNotFoundException
-from datetime import datetime
-
-import os
-
-from src.utils_v1.payment.vault_backup_service_manage import get_vault_backup_path
+from src.utils.consts import get_unique_dict_item_from_list
+from src.utils_v1.did_mongo_db_resource import gene_mongo_db_name, convert_oid, get_user_database_prefix
+from src.utils_v1.constants import DID_INFO_DB_NAME, VAULT_SERVICE_COL, VAULT_SERVICE_DID, USER_DID, APP_ID, DID_INFO_REGISTER_COL, APP_INSTANCE_DID
+from src.utils.http_exception import BadRequestException, AlreadyExistsException, VaultNotFoundException, CollectionNotFoundException
 
 VAULT_SERVICE_FREE = "Free"
 VAULT_SERVICE_STATE_RUNNING = "running"
@@ -32,14 +23,12 @@ VAULT_SERVICE_STATE_FREEZE = "freeze"
 
 class DatabaseClient:
     def __init__(self):
-        self.is_mongo_atlas = hive_setting.is_mongodb_atlas()
-        self.host = hive_setting.MONGO_HOST
-        self.port = hive_setting.MONGO_PORT
+        self.mongodb_uri = hive_setting.MONGODB_URI
         self.connection = None
 
     def __get_connection(self):
         if not self.connection:
-            self.connection = create_db_client()
+            self.connection = MongoClient(self.mongodb_uri)
         return self.connection
 
     def start_session(self):
@@ -60,6 +49,11 @@ class DatabaseClient:
         db_name = gene_mongo_db_name(user_did, app_did)
         logging.info(f'Choose the use database: {user_did}, {app_did}, {db_name}')
         return db_name
+
+    def get_database_size(self, db_name):
+        if not self.is_database_exists(db_name):
+            return 0
+        return self.__get_connection()[db_name].command("dbstats")["dataSize"]
 
     def get_origin_collection(self, db_name, collection_name, create_on_absence=False):
         db = self.__get_connection()[db_name]
@@ -215,7 +209,7 @@ class DatabaseClient:
                     f.write(chunk)
             return os.path.getsize(file_path.as_posix())
         except Exception as e:
-            raise BadRequestException('Failed to save the file content to local.')
+            raise BadRequestException(msg='Failed to save the file content to local.')
 
     def create_collection(self, user_did, app_did, collection_name):
         try:
@@ -259,42 +253,12 @@ class DatabaseClient:
         user_apps = self.get_all_user_apps()
         return list(set([d[USER_DID] for d in user_apps]))
 
-    def export_mongodb(self, user_did):
-        did_info_list = get_all_did_info_by_did(user_did)
-        for did_info in did_info_list:
-            export_mongo_db(did_info[USER_DID], did_info[APP_ID])
-
-    def import_mongodb(self, user_did):
-        """ same as import_mongo_db """
-        mongodb_root = get_save_mongo_db_path(user_did)
-        self.restore_database(mongodb_root)
-
-    def import_mongodb_in_backup_server(self, user_did):
-        vault_dir = get_vault_backup_path(user_did)
-        self.restore_database(vault_dir)
-
-    def restore_database(self, root_dir: Path):
-        if not root_dir.exists():
-            logging.info('The backup root dir does not exist, skip restore.')
-            return
-
-        # restore the data of the database from every 'dump_file'.
-        dump_files = [x for x in root_dir.iterdir() if x.suffix == BACKUP_FILE_SUFFIX]
-        for dump_file in dump_files:
-            if self.is_mongo_atlas:
-                line2 = f"mongorestore --uri={self.host}" \
-                        f" --drop --archive='{dump_file.as_posix()}'"
-            else:
-                line2 = f"mongorestore -h {self.host} --port {self.port}" \
-                        f" --drop --archive='{dump_file.as_posix()}'"
-            logging.info(f'[db_client] restore database from file {line2}.')
-            return_code = subprocess.call(line2, shell=True)
-            if return_code != 0:
-                raise BadRequestException(msg=f'Failed to restore mongodb data from file {dump_file.as_posix()}.')
-
 
 cli = DatabaseClient()
 
 
 if __name__ == '__main__':
-    pass
+    # Compute the user's database name.
+    db_name = cli.get_user_database_name('did:elastos:idXWuMoHYYhhGjigKwEidw7ZPDauPC5FU7',
+                                         'did:elastos:ig1nqyyJhwTctdLyDFbZomSbZSjyMN1uor')
+    print(db_name)

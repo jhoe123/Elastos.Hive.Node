@@ -1,6 +1,6 @@
 language: python
 python:
-  - "3.6"
+  - "3.9"
 dist: bionic
 services:
   - docker
@@ -10,9 +10,9 @@ before_install:
   - mkdir -p ${PWD}/.ipfs-data/ipfs-docker-staging
   - mkdir -p ${PWD}/.ipfs-data/ipfs-docker-data
   - docker run -d --name ipfs-node -v ${PWD}/.ipfs-data/ipfs-docker-staging:/export -v ${PWD}/.ipfs-data/ipfs-docker-data:/data/ipfs -p 8080:8080 -p 4001:4001 -p 127.0.0.1:5001:5001 ipfs/go-ipfs:latest
-  - cp config/.env.example .env
+  - cp config/.env.travis .env
   - pip install -r requirements.txt
-  - LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver &
+  - LD_LIBRARY_PATH="$PWD/src/util/did/" python manage.py runserver &
 install:
   - docker ps
 script:
@@ -20,9 +20,6 @@ script:
   - pytest --disable-pytest-warnings -xs tests_v1/hive_mongo_test.py
   - pytest --disable-pytest-warnings -xs tests_v1/hive_file_test.py
   - pytest --disable-pytest-warnings -xs tests_v1/hive_scripting_test.py
-  - pytest --disable-pytest-warnings -xs tests_v1/hive_payment_test.py
-  - pytest --disable-pytest-warnings -xs tests_v1/hive_backup_test.py
-  - pytest --disable-pytest-warnings -xs tests_v1/hive_pubsub_test.py
 
   - ./wait_node.sh
   - pytest --disable-pytest-warnings -xs tests/about_test.py
@@ -33,3 +30,4 @@ script:
   - pytest --disable-pytest-warnings -xs tests/scripting_test.py
   - pytest --disable-pytest-warnings -xs tests/payment_test.py
   - pytest --disable-pytest-warnings -xs tests/backup_test.py
+  - pytest --disable-pytest-warnings -xs tests/provider_test.py

@@ -3,405 +3,421 @@
 """
 The view of ipfs module for files and scripting.
 """
-from flask import Blueprint
+from flask_restful import Resource
 
 from src.modules.ipfs.ipfs_files import IpfsFiles
 from src.utils.http_exception import BadRequestException, InvalidParameterException
 from src.utils.http_request import rqargs
+from src.utils.http_response import response_stream
 
-blueprint = Blueprint('files', __name__)
-ipfs_files: IpfsFiles = None
 
+class ReadingOperation(Resource):
+    def __init__(self):
+        self.ipfs_files = IpfsFiles()
 
-def init_app(app):
-    """ This will be called by application initializer. """
-    global ipfs_files
-    ipfs_files = IpfsFiles()
-    app.register_blueprint(blueprint)
+    @response_stream
+    def get(self, path):
+        """ Download/get the properties of/get the hash of the file, list the files of the folder.
+        Download the content of the file by path if no URL parameter.
 
+        .. :quickref: 04 Files; Download/properties/hash/list
 
-@blueprint.route('/api/v2/vault/files/<regex("(|[0-9a-zA-Z_/.]*)"):path>', methods=['GET'])
-def reading_operation(path):
-    """ Download/get the properties of/get the hash of the file, list the files of the folder.
-    Download the content of the file by path if no URL parameter.
+        **Request**:
 
-    .. :quickref: 04 Files; Download/properties/hash/list
+        .. sourcecode:: http
 
-    **Request**:
+            None
 
-    .. sourcecode:: http
+        **Response OK**:
 
-        None
+        .. sourcecode:: http
 
-    **Response OK**:
+            HTTP/1.1 200 OK
 
-    .. sourcecode:: http
+        .. code-block:: json
 
-        HTTP/1.1 200 OK
+            <The bytes of the content of the file.>
 
-    .. code-block:: json
+        **Response Error**:
 
-        <The bytes of the content of the file.>
+        .. sourcecode:: http
 
-    **Response Error**:
+            HTTP/1.1 400 Bad Request
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 400 Bad Request
+            HTTP/1.1 401 Unauthorized
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 401 Unauthorized
+            HTTP/1.1 403 Forbidden
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 403 Forbidden
+            HTTP/1.1 404 Not Found
 
-    .. sourcecode:: http
+        List the files of the directory by the path if the URL parameter is 'comp=children'.
 
-        HTTP/1.1 404 Not Found
+        **Request**:
 
-    List the files of the directory by the path if the URL parameter is 'comp=children'.
+        .. sourcecode:: http
 
-    **Request**:
+            None
 
-    .. sourcecode:: http
+        **Response OK**:
 
-        None
+        .. sourcecode:: http
 
-    **Response OK**:
+            HTTP/1.1 200 OK
 
-    .. sourcecode:: http
+        .. code-block:: json
 
-        HTTP/1.1 200 OK
+            {
+                “value”: [{
+                    “name”: “<path/to/res>”
+                    “is_file”: false,
+                    “size”: <Integer>
+                }, {
+                    “name”: “<path/to/dir>”
+                    “is_file”: true
+                }]
+            }
 
-    .. code-block:: json
+        **Response Error**:
 
-        {
-            “value”: [{
-                “name”: “<path/to/res>”
-                “is_file”: false,
-                “size”: <Integer>
-            }, {
-                “name”: “<path/to/dir>”
-                “is_file”: true
-            }]
-        }
+        .. sourcecode:: http
 
-    **Response Error**:
+            HTTP/1.1 400 Bad Request
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 400 Bad Request
+            HTTP/1.1 401 Unauthorized
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 401 Unauthorized
+            HTTP/1.1 403 Forbidden
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 403 Forbidden
+            HTTP/1.1 404 Not Found
 
-    .. sourcecode:: http
+        Get the properties of the file by the path if the URL parameter is 'comp=metadata'.
 
-        HTTP/1.1 404 Not Found
+        **Request**:
 
-    Get the properties of the file by the path if the URL parameter is 'comp=metadata'.
+        .. sourcecode:: http
 
-    **Request**:
+            None
 
-    .. sourcecode:: http
+        **Response OK**:
 
-        None
+        .. sourcecode:: http
 
-    **Response OK**:
+            HTTP/1.1 200 OK
 
-    .. sourcecode:: http
+        .. code-block:: json
 
-        HTTP/1.1 200 OK
+            {
+                “name”: <path/to/res>,
+                “is_file”: <true: file, false: folder>,
+                “size”: <size>,
+                “created”: <created timestamp>
+                “updated”: <updated timestamp>
+            }
 
-    .. code-block:: json
+        **Response Error**:
 
-        {
-            “name”: <path/to/res>,
-            “is_file”: <true: file, false: folder>,
-            “size”: <size>,
-            “created”: <created timestamp>
-            “updated”: <updated timestamp>
-        }
+        .. sourcecode:: http
 
-    **Response Error**:
+            HTTP/1.1 400 Bad Request
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 400 Bad Request
+            HTTP/1.1 401 Unauthorized
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 401 Unauthorized
+            HTTP/1.1 403 Forbidden
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 403 Forbidden
+            HTTP/1.1 404 Not Found
 
-    .. sourcecode:: http
+        Get the hash of the file by the path if the URL parameter is 'comp=hash'.
 
-        HTTP/1.1 404 Not Found
+        **Request**:
 
-    Get the hash of the file by the path if the URL parameter is 'comp=hash'.
+        .. sourcecode:: http
 
-    **Request**:
+            None
 
-    .. sourcecode:: http
+        **Response OK**:
 
-        None
+        .. sourcecode:: http
 
-    **Response OK**:
+            HTTP/1.1 200 OK
 
-    .. sourcecode:: http
+        .. code-block:: json
 
-        HTTP/1.1 200 OK
+            {
+                "name": <the path of the file>
+                “algorithm”: <“algorithm name: currently support SHA256”>
+                "hash":  <SHA-256 computation value of the file content>
+            }
 
-    .. code-block:: json
 
-        {
-            "name": <the path of the file>
-            “algorithm”: <“algorithm name: currently support SHA256”>
-            "hash":  <SHA-256 computation value of the file content>
-        }
+        **Response Error**:
 
+        .. sourcecode:: http
 
-    **Response Error**:
+            HTTP/1.1 400 Bad Request
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 400 Bad Request
+            HTTP/1.1 401 Unauthorized
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 401 Unauthorized
+            HTTP/1.1 403 Forbidden
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 403 Forbidden
+            HTTP/1.1 404 Not Found
 
-    .. sourcecode:: http
+        """
 
-        HTTP/1.1 404 Not Found
+        component, _ = rqargs.get_str('comp')
+        if not path and component != 'children':
+            raise InvalidParameterException(msg='Resource path is mandatory, but its missing.')
 
-    """
+        if not component:
+            return self.ipfs_files.download_file(path)
+        elif component == 'children':
+            return self.ipfs_files.list_folder(path)
+        elif component == 'metadata':
+            return self.ipfs_files.get_properties(path)
+        elif component == 'hash':
+            return self.ipfs_files.get_hash(path)
+        else:
+            raise BadRequestException(msg=f'Unsupported parameter "comp" value {component}')
 
-    component, _ = rqargs.get_str('comp')
-    if not path and component != 'children':
-        return InvalidParameterException(msg='Resource path is mandatory, but its missing.').get_error_response()
 
-    if not component:
-        return ipfs_files.download_file(path)
-    elif component == 'children':
-        return ipfs_files.list_folder(path)
-    elif component == 'metadata':
-        return ipfs_files.get_properties(path)
-    elif component == 'hash':
-        return ipfs_files.get_hash(path)
-    else:
-        return BadRequestException(msg=f'Unsupported parameter "comp" value {component}').get_error_response()
+class WritingOperation(Resource):
+    def __init__(self):
+        self.ipfs_files = IpfsFiles()
 
+    def put(self, path):
+        """ Copy or upload file by path.
+        Copy the file by the path if the URL parameter is 'dest=<path/to/destination>'.
 
-@blueprint.route('/api/v2/vault/files/<path:path>', methods=['PUT'])
-def writing_operation(path):
-    """ Copy or upload file by path.
-    Copy the file by the path if the URL parameter is 'dest=<path/to/destination>'.
+        .. :quickref: 04 Files; Copy/upload
 
-    .. :quickref: 04 Files; Copy/upload
+        Copy the file from 'path' to 'dest'.
 
-    **Request**:
+        **Request**:
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        None
+            None
 
-    **Response OK**:
+        **Response OK**:
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 201 Created
+            HTTP/1.1 201 Created
 
-    .. code-block:: json
+        .. code-block:: json
 
-        {
-            “name”: “<path/to/destination>”
-        }
+            {
+                “name”: “<path/to/destination>”
+            }
 
-    **Response Error**:
+        **Response Error**:
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 400 Bad Request
+            HTTP/1.1 400 Bad Request
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 401 Unauthorized
+            HTTP/1.1 401 Unauthorized
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 403 Forbidden
+            HTTP/1.1 403 Forbidden
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 404 Not Found
+            HTTP/1.1 404 Not Found
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 455 Already Exists
+            HTTP/1.1 455 Already Exists
 
-    Upload the content of the file by path if no URL parameter.
+        Upload the content of the file by path if no URL parameter.
 
-    **Request**:
+        **Request**:
 
-    .. sourcecode:: http
+        **URL Parameters**:
 
-        None
+        .. sourcecode:: http
 
-    **Response OK**:
+            public=<true|false> # whether the file uploaded can be access anonymously.
+            script_name=<string> # script name used to set up for downloading by scripting module. the script can be run without params.
 
-    .. sourcecode:: http
+        **Response OK**:
 
-        HTTP/1.1 201 Created
+        .. sourcecode:: http
 
-    .. code-block:: json
+            HTTP/1.1 201 Created
 
-        {
-            “name”: “<path/to/res>”
-        }
+        .. code-block:: json
 
-    **Response Error**:
+            {
+                “name”: “<path/to/res>”,
+                “cid”: “<cid>”  # the cid of ipfs proxy if public=true, else empty.
+            }
 
-    .. sourcecode:: http
+        **Response Error**:
 
-        HTTP/1.1 400 Bad Request
+        .. sourcecode:: http
 
-    .. sourcecode:: http
+            HTTP/1.1 400 Bad Request
 
-        HTTP/1.1 401 Unauthorized
+        .. sourcecode:: http
 
-    .. sourcecode:: http
+            HTTP/1.1 401 Unauthorized
 
-        HTTP/1.1 403 Forbidden
+        .. sourcecode:: http
 
-    .. sourcecode:: http
+            HTTP/1.1 403 Forbidden
 
-        HTTP/1.1 404 Not Found
+        .. sourcecode:: http
 
-    """
+            HTTP/1.1 404 Not Found
 
-    if not path:
-        return InvalidParameterException(msg='Resource path is mandatory, but its missing.').get_error_response()
+        """
 
-    dst_path, _ = rqargs.get_str('dest')
-    if not dst_path:
-        return ipfs_files.upload_file(path)
+        if not path:
+            raise InvalidParameterException(msg='Resource path is mandatory, but its missing.')
 
-    if path == dst_path:
-        return InvalidParameterException(msg=f'The source file {path} can be copied to a target file with same name')\
-            .get_error_response()
-    return ipfs_files.copy_file(path, dst_path)
+        dst_path, _ = rqargs.get_str('dest')
+        if not dst_path:
+            is_public, msg = rqargs.get_bool('public', False)
+            script_name, msg = rqargs.get_str('script_name', '')
+            if is_public and not script_name:
+                raise InvalidParameterException(msg='MUST provide script name when public is true.')
+            return self.ipfs_files.upload_file(path, is_public, script_name)
 
+        if path == dst_path:
+            raise InvalidParameterException(msg=f'The source file {path} can be copied to a target file with same name')
+        return self.ipfs_files.copy_file(path, dst_path)
 
-@blueprint.route('/api/v2/vault/files/<path:path>', methods=['PATCH'])
-def move_file(path):
-    """ Move the file by path to the file provided by the URL parameter 'to=<path/to/destination>'
 
-    .. :quickref: 04 Files; Move
+class MoveFile(Resource):
+    def __init__(self):
+        self.ipfs_files = IpfsFiles()
 
-    **Request**:
+    def patch(self, path):
+        """ Move the file by path to the file provided by the URL parameter 'to=<path/to/destination>'
 
-    .. sourcecode:: http
+        .. :quickref: 04 Files; Move
 
-        None
+        **Request**:
 
-    **Response OK**:
+        .. sourcecode:: http
 
-    .. sourcecode:: http
+            None
 
-        HTTP/1.1 200 OK
+        **Response OK**:
 
-    .. code-block:: json
+        .. sourcecode:: http
 
-        {
-            “name”: “<path/to/destination>”
-        }
+            HTTP/1.1 200 OK
 
-    **Response Error**:
+        .. code-block:: json
 
-    .. sourcecode:: http
+            {
+                “name”: “<path/to/destination>”
+            }
 
-        HTTP/1.1 400 Bad Request
+        **Response Error**:
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 401 Unauthorized
+            HTTP/1.1 400 Bad Request
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 403 Forbidden
+            HTTP/1.1 401 Unauthorized
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 404 Not Found
+            HTTP/1.1 403 Forbidden
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 455 Already Exists
+            HTTP/1.1 404 Not Found
 
-    """
+        .. sourcecode:: http
 
-    if not path:
-        return InvalidParameterException(msg='Resource path is mandatory, but its missing.').get_error_response()
+            HTTP/1.1 455 Already Exists
 
-    dst_path, _ = rqargs.get_str('to')
-    if not dst_path:
-        return InvalidParameterException(msg='The path MUST be provided.').get_error_response()
-    if path == dst_path:
-        return InvalidParameterException(msg=f'The source file {path} can be moved to a target file with same name') \
-                .get_error_response()
-    return ipfs_files.move_file(path, dst_path)
+        """
 
+        if not path:
+            raise InvalidParameterException(msg='Resource path is mandatory, but its missing.')
 
-@blueprint.route('/api/v2/vault/files/<path:path>', methods=['DELETE'])
-def delete_file(path):
-    """ Delete the file by path.
+        dst_path, _ = rqargs.get_str('to')
+        if not dst_path:
+            raise InvalidParameterException(msg='The path MUST be provided.')
+        if path == dst_path:
+            raise InvalidParameterException(msg=f'The source file {path} can be moved to a target file with same name')
+        return self.ipfs_files.move_file(path, dst_path)
 
-    .. :quickref: 04 Files; Delete
 
-    **Request**:
+class DeleteFile(Resource):
+    def __init__(self):
+        self.ipfs_files = IpfsFiles()
 
-    .. sourcecode:: http
+    def delete(self, path):
+        """ Delete the file by path.
 
-        None
+        .. :quickref: 04 Files; Delete
 
-    **Response OK**:
+        **Request**:
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 204 No Content
+            None
 
-    **Response Error**:
+        **Response OK**:
 
-    .. sourcecode:: http
+        .. sourcecode:: http
 
-        HTTP/1.1 400 Bad Request
+            HTTP/1.1 204 No Content
 
-    .. sourcecode:: http
+        **Response Error**:
 
-        HTTP/1.1 401 Unauthorized
+        .. sourcecode:: http
 
-    .. sourcecode:: http
+            HTTP/1.1 400 Bad Request
 
-        HTTP/1.1 403 Forbidden
+        .. sourcecode:: http
 
-    """
+            HTTP/1.1 401 Unauthorized
 
-    if not path:
-        return InvalidParameterException(msg='Resource path is mandatory, but its missing.').get_error_response()
+        .. sourcecode:: http
 
-    return ipfs_files.delete_file(path)
+            HTTP/1.1 403 Forbidden
+
+        .. sourcecode:: http
+
+            HTTP/1.1 404 Not Found
+
+        """
+
+        if not path:
+            raise InvalidParameterException(msg='Resource path is mandatory, but its missing.')
+
+        return self.ipfs_files.delete_file(path)

@@ -3,11 +3,12 @@
 """
 The main handling file of scripting module.
 """
+import json
 import logging
 
 import jwt
-from flask import request
-from bson import ObjectId
+from flask import request, g
+from bson import ObjectId, json_util
 
 from src import hive_setting
 from src.utils_v1.constants import SCRIPTING_EXECUTABLE_TYPE_AGGREGATED, SCRIPTING_EXECUTABLE_TYPE_FIND, \
@@ -17,15 +18,13 @@ from src.utils_v1.constants import SCRIPTING_EXECUTABLE_TYPE_AGGREGATED, SCRIPTI
     SCRIPTING_SCRIPT_TEMP_TX_COLLECTION, VAULT_ACCESS_R, VAULT_ACCESS_WR, VAULT_ACCESS_DEL
 from src.utils_v1.did_file_info import query_upload_get_filepath, query_hash
 from src.utils_v1.did_mongo_db_resource import populate_options_count_documents, convert_oid, get_mongo_database_size, \
-    populate_options_find_many, populate_options_insert_one, populate_options_update_one
-from src.utils_v1.did_scripting import populate_with_params_values
+    populate_find_options_from_body, populate_options_insert_one, populate_options_update_one
+from src.utils_v1.did_scripting import populate_with_params_values, populate_file_body
 from src.utils_v1.payment.vault_service_manage import update_used_storage_for_mongodb_data
 from src.modules.ipfs.ipfs_files import IpfsFiles
 from src.utils.consts import COL_IPFS_FILES_IS_FILE, SIZE, COL_IPFS_FILES_SHA256
 from src.utils.db_client import cli
-from src.utils.did_auth import check_auth_and_vault, check_auth
-from src.utils.http_exception import NotFoundException, BadRequestException
-from src.utils.http_response import hive_restful_response, hive_stream_response
+from src.utils.http_exception import BadRequestException, CollectionNotFoundException, ScriptNotFoundException
 
 
 def validate_exists(json_data, parent_name, prop_list):
@@ -85,7 +84,7 @@ class Condition:
 
         if condition_type in ['and', 'or']:
             if not isinstance(json_data['body'], list)\
-                    or json_data['body'].length < 1:
+                    or not json_data['body']:
                 raise BadRequestException(msg=f"Condition body MUST be list "
                                               f"and at least contain one element for the type '{condition_type}'")
             for data in json_data['body']:
@@ -154,6 +153,8 @@ class Context:
     def get_script_data(self, script_name):
         """ get the script data by target_did and target_app_did """
         col = cli.get_user_collection(self.target_did, self.target_app_did, SCRIPTING_SCRIPT_COLLECTION)
+        if not col:
+            raise CollectionNotFoundException(msg='The collection scripts can not be found.')
         return col.find_one({'name': script_name})
 
     def can_anonymous_access(self, anonymous_user: bool, anonymous_app: bool):
@@ -193,7 +194,7 @@ class Executable:
             raise BadRequestException(msg=f"Invalid type {json_data['type']} of the executable.")
 
         if json_data['type'] == SCRIPTING_EXECUTABLE_TYPE_AGGREGATED \
-                and (not isinstance(json_data['body'], list) or json_data['body'].length < 1):
+                and (not isinstance(json_data['body'], list) or len(json_data['body']) < 1):
             raise BadRequestException(msg=f"Executable body MUST be list for type "
                                           f"'{SCRIPTING_EXECUTABLE_TYPE_AGGREGATED}'.")
 
@@ -258,17 +259,14 @@ class Executable:
             raise BadRequestException(msg='Cannot get parameter value for the executable filter: ' + msg)
         return col_filter
 
-    def get_populated_body(self):
-        body = self.body
-        msg = populate_with_params_values(self.get_did(), self.get_app_id(), body, self.get_params())
-        if msg:
-            raise BadRequestException(msg='Cannot get parameter value for the executable body: ' + msg)
-        return body
+    def get_populated_file_body(self):
+        populate_file_body(self.body, self.get_params())
+        return self.body
 
     def _create_transaction(self, permission, action_type):
         cli.check_vault_access(self.get_target_did(), permission)
 
-        body = self.get_populated_body()
+        body = self.get_populated_file_body()
         anonymous_url = ''
         if self.is_ipfs:
             if action_type == 'download':
@@ -293,17 +291,17 @@ class Executable:
                                   'anonymous': self.script.anonymous_app and self.script.anonymous_user
                               }, create_on_absence=True)
         if not data.get('inserted_id', None):
-            raise BadRequestException('Cannot retrieve the transaction ID.')
+            raise BadRequestException(msg='Cannot retrieve the transaction ID.')
 
         update_used_storage_for_mongodb_data(self.get_target_did(),
-                                         get_mongo_database_size(self.get_target_did(), self.get_target_app_did()))
+                                             get_mongo_database_size(self.get_target_did(), self.get_target_app_did()))
 
         result = {
             "transaction_id": jwt.encode({
                 "row_id": data.get('inserted_id', None),
                 "target_did": self.get_target_did(),
                 "target_app_did": self.get_target_app_did()
-            }, hive_setting.DID_STOREPASS, algorithm='HS256')
+            }, hive_setting.PASSWORD, algorithm='HS256')
         }
         if action_type == 'download' and self.is_ipfs and self.script.anonymous_app and self.script.anonymous_user:
             result['anonymous_url'] = anonymous_url
@@ -346,12 +344,9 @@ class FindExecutable(Executable):
 
     def execute(self):
         cli.check_vault_access(self.get_target_did(), VAULT_ACCESS_R)
-        options = populate_options_find_many(self.body) if 'options' in self.body else {}
-        return self.get_output_data({"items": cli.find_many(self.get_target_did(),
-                                                            self.get_target_app_did(),
-                                                            self.get_collection_name(),
-                                                            self.get_populated_filter(),
-                                                            options)})
+        items = cli.find_many(self.get_target_did(), self.get_target_app_did(),
+                              self.get_collection_name(), self.get_populated_filter(), populate_find_options_from_body(self.body))
+        return self.get_output_data({"items": json.loads(json_util.dumps(items))})
 
 
 class InsertExecutable(Executable):
@@ -398,7 +393,7 @@ class UpdateExecutable(Executable):
                               populate_options_update_one(self.body))
 
         update_used_storage_for_mongodb_data(self.get_did(),
-                                         get_mongo_database_size(self.get_target_did(), self.get_target_app_did()))
+                                             get_mongo_database_size(self.get_target_did(), self.get_target_app_did()))
 
         return self.get_output_data(data)
 
@@ -442,8 +437,7 @@ class FilePropertiesExecutable(Executable):
         super().__init__(script, executable_data)
 
     def execute(self):
-        cli.check_vault_access(self.script.user_did, VAULT_ACCESS_R)
-        body = self.get_populated_body()
+        body = self.get_populated_file_body()
         logging.info(f'get file properties: is_ipfs={self.is_ipfs}, path={body["path"]}')
         if self.is_ipfs:
             doc = self.ipfs_files.get_file_metadata(self.get_target_did(), self.get_target_app_did(), body['path'])
@@ -468,19 +462,20 @@ class FileHashExecutable(Executable):
         super().__init__(script, executable_data)
 
     def execute(self):
-        cli.check_vault_access(self.script.user_did, VAULT_ACCESS_R)
-        body = self.get_populated_body()
+        body = self.get_populated_file_body()
         logging.info(f'get file hash: is_ipfs={self.is_ipfs}, path={body["path"]}')
         if self.is_ipfs:
             doc = self.ipfs_files.get_file_metadata(self.get_target_did(), self.get_target_app_did(), body['path'])
             return self.get_output_data({"SHA256": doc[COL_IPFS_FILES_SHA256]})
         data, err = query_hash(self.get_target_did(), self.get_target_app_did(), body['path'])
         if err:
-            raise BadRequestException('Failed to get file hash code with error message: ' + str(err))
+            raise BadRequestException(msg='Failed to get file hash code with error message: ' + str(err))
         return self.get_output_data(data)
 
 
 class Script:
+    DOLLAR_REPLACE = '%%'
+
     def __init__(self, script_name, run_data, user_did, app_did, scripting=None, is_ipfs=False):
         self.user_did = user_did
         self.app_did = app_did
@@ -519,7 +514,7 @@ class Script:
         script_data = self.context.get_script_data(self.name)
         if not script_data:
             raise BadRequestException(msg=f"Can't get the script with name '{self.name}'")
-        fix_dollar_keys(script_data['executable'], False)
+        Script.fixDollarKeysRecursively(script_data, is_save=False)
         self.executables = Executable.create(self, script_data['executable'])
         self.anonymous_user = script_data.get('allowAnonymousUser', False)
         self.anonymous_app = script_data.get('allowAnonymousApp', False)
@@ -538,6 +533,25 @@ class Script:
 
         return result
 
+    @staticmethod
+    def fixDollarKeysRecursively(iterable, is_save=True):
+        """ Used for registering script content to skip $ restrictions in the field name of the document.
+        Recursively replace the key which start with 'src' to 'dst'.
+        """
+        src = '$' if is_save else Script.DOLLAR_REPLACE
+        dst = Script.DOLLAR_REPLACE if is_save else '$'
+        if type(iterable) is dict:
+            for key in list(iterable.keys()):
+                if key.startswith(src):
+                    new_key = dst + key[len(src):]
+                    iterable[new_key] = iterable.pop(key)
+                else:
+                    new_key = key
+                Script.fixDollarKeysRecursively(iterable[new_key], is_save=is_save)
+        elif type(iterable) is list:
+            for v in iterable:
+                Script.fixDollarKeysRecursively(v, is_save=is_save)
+
 
 class Scripting:
     def __init__(self, is_ipfs=False):
@@ -545,21 +559,36 @@ class Scripting:
         self.is_ipfs = is_ipfs
         self.ipfs_files = IpfsFiles()
 
-    @hive_restful_response
     def set_script(self, script_name):
-        user_did, app_did = check_auth_and_vault(VAULT_ACCESS_WR)
+        cli.check_vault_access(g.usr_did, VAULT_ACCESS_WR)
 
         json_data = request.get_json(force=True, silent=True)
         Script.validate_script_data(json_data)
 
-        result = self.__upsert_script_to_database(script_name, json_data, user_did, app_did)
-        update_used_storage_for_mongodb_data(user_did, get_mongo_database_size(user_did, app_did))
+        result = self.__upsert_script_to_database(script_name, json_data, g.usr_did, g.app_did)
+        update_used_storage_for_mongodb_data(g.usr_did, get_mongo_database_size(g.usr_did, g.app_did))
         return result
+
+    def set_script_for_anonymous_file(self, script_name: str, file_path: str):
+        json_data = {
+            "executable": {
+                "output": True,
+                "name": script_name,
+                "type": "fileDownload",
+                "body": {
+                    "path": file_path
+                }
+            },
+            "allowAnonymousUser": True,
+            "allowAnonymousApp": True
+        }
+        result = self.__upsert_script_to_database(script_name, json_data, g.usr_did, g.app_did)
+        update_used_storage_for_mongodb_data(g.usr_did, get_mongo_database_size(g.usr_did, g.app_did))
 
     def __upsert_script_to_database(self, script_name, json_data, user_did, app_did):
         col = cli.get_user_collection(user_did, app_did, SCRIPTING_SCRIPT_COLLECTION, create_on_absence=True)
         json_data['name'] = script_name
-        fix_dollar_keys(json_data['executable'])
+        Script.fixDollarKeysRecursively(json_data)
         ret = col.replace_one({"name": script_name}, convert_oid(json_data),
                               upsert=True, bypass_document_validation=False)
         return {
@@ -569,26 +598,22 @@ class Scripting:
             "upserted_id": str(ret.upserted_id) if ret.upserted_id else '',
         }
 
-    @hive_restful_response
     def delete_script(self, script_name):
-        user_did, app_did = check_auth_and_vault(VAULT_ACCESS_DEL)
+        cli.check_vault_access(g.usr_did, VAULT_ACCESS_DEL)
 
-        col = cli.get_user_collection(user_did, app_did, SCRIPTING_SCRIPT_COLLECTION)
-        if not col:
-            raise NotFoundException(NotFoundException.SCRIPT_NOT_FOUND, 'The script collection does not exist.')
+        col = cli.get_user_collection(g.usr_did, g.app_did, SCRIPTING_SCRIPT_COLLECTION, create_on_absence=True)
 
         ret = col.delete_many({'name': script_name})
         if ret.deleted_count > 0:
-            update_used_storage_for_mongodb_data(user_did, get_mongo_database_size(user_did, app_did))
+            update_used_storage_for_mongodb_data(g.usr_did, get_mongo_database_size(g.usr_did, g.app_did))
+        else:
+            raise ScriptNotFoundException(f'The script {script_name} does not exist.')
 
-    @hive_restful_response
     def run_script(self, script_name):
         json_data = request.get_json(force=True, silent=True)
         Script.validate_run_data(json_data)
-        user_did, app_did = check_auth()
-        return Script(script_name, json_data, user_did, app_did, scripting=self, is_ipfs=self.is_ipfs).execute()
+        return Script(script_name, json_data, g.usr_did, g.app_did, scripting=self, is_ipfs=self.is_ipfs).execute()
 
-    @hive_restful_response
     def run_script_url(self, script_name, target_did, target_app_did, params):
         json_data = {
             'params': params
@@ -599,28 +624,24 @@ class Scripting:
                 'target_app_did': target_app_did
             }
         Script.validate_run_data(json_data)
-        user_did, app_did = check_auth()
-        return Script(script_name, json_data, user_did, app_did, scripting=self, is_ipfs=self.is_ipfs).execute()
+        return Script(script_name, json_data, g.usr_did, g.app_did, scripting=self, is_ipfs=self.is_ipfs).execute()
 
     def get_files(self):
         if not self.files:
-            from src.modules.files.files import Files
+            from src.modules.deprecated.files import Files
             self.files = Files()
         return self.files
 
-    @hive_restful_response
     def upload_file(self, transaction_id):
         return self.handle_transaction(transaction_id)
 
     def handle_transaction(self, transaction_id, is_download=False):
-        check_auth_and_vault(VAULT_ACCESS_R if is_download else VAULT_ACCESS_WR)
-
         # check by transaction id
         row_id, target_did, target_app_did = self.parse_transaction_id(transaction_id)
         col_filter = {"_id": ObjectId(row_id)}
         trans = cli.find_one(target_did, target_app_did, SCRIPTING_SCRIPT_TEMP_TX_COLLECTION, col_filter)
         if not trans:
-            raise BadRequestException("Cannot find the transaction by id.")
+            raise BadRequestException(msg="Cannot find the transaction by id.")
 
         # executing uploading or downloading
         data = None
@@ -644,13 +665,12 @@ class Scripting:
         # return the content of the file
         return data
 
-    @hive_stream_response
     def download_file(self, transaction_id):
         return self.handle_transaction(transaction_id, is_download=True)
 
     def parse_transaction_id(self, transaction_id):
         try:
-            trans = jwt.decode(transaction_id, hive_setting.DID_STOREPASS, algorithms=['HS256'])
+            trans = jwt.decode(transaction_id, hive_setting.PASSWORD, algorithms=['HS256'])
             return trans.get('row_id', None), trans.get('target_did', None), trans.get('target_app_did', None)
         except Exception as e:
             raise BadRequestException(msg=f"Invalid transaction id '{transaction_id}'")

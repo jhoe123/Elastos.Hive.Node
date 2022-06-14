@@ -152,27 +152,20 @@ function start_direct () {
     LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver
 }
 
-function test () {
-    echo "Running directly only..."
-    prepare_before_running
-    setup_venv
-    LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver &
-
-    rm -rf data
-    rm -f hive.log
-    rm -f test_patch.delta
-
+function test_only() {
     # Run tests_v1
     pytest --disable-pytest-warnings -xs tests_v1/hive_auth_test.py
     pytest --disable-pytest-warnings -xs tests_v1/hive_mongo_test.py
     pytest --disable-pytest-warnings -xs tests_v1/hive_file_test.py
     pytest --disable-pytest-warnings -xs tests_v1/hive_scripting_test.py
-    pytest --disable-pytest-warnings -xs tests_v1/hive_payment_test.py
-    pytest --disable-pytest-warnings -xs tests_v1/hive_backup_test.py
+    # pytest --disable-pytest-warnings -xs tests_v1/hive_payment_test.py
+    # pytest --disable-pytest-warnings -xs tests_v1/hive_backup_test.py
     # pytest --disable-pytest-warnings -xs tests_v1/hive_internal_test.py # INFO: skip this
-    pytest --disable-pytest-warnings -xs tests_v1/hive_pubsub_test.py
+    # pytest --disable-pytest-warnings -xs tests_v1/hive_pubsub_test.py
 
     # Run tests
+    rm -f data/access_token
+    export HIVE_PORT=5000
     pytest --disable-pytest-warnings -xs tests/about_test.py
     pytest --disable-pytest-warnings -xs tests/auth_test.py
     pytest --disable-pytest-warnings -xs tests/subscription_test.py
@@ -181,7 +174,19 @@ function test () {
     pytest --disable-pytest-warnings -xs tests/scripting_test.py
     pytest --disable-pytest-warnings -xs tests/payment_test.py
     pytest --disable-pytest-warnings -xs tests/backup_test.py
+    pytest --disable-pytest-warnings -xs tests/backup_local_test.py
+    pytest --disable-pytest-warnings -xs tests/provider_test.py
+}
 
+function test () {
+    echo "Running directly only..."
+    prepare_before_running
+    setup_venv
+
+    rm -rf data
+    LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver &
+
+    test_only
     pkill -f manage.py
 }
 
@@ -199,6 +204,9 @@ function stop() {
 }
 
 case "$1" in
+    setup)
+        setup_venv
+        ;;
     direct)
         start_direct
         ;;
@@ -207,6 +215,10 @@ case "$1" in
         ;;
     test)
         test
+        ;;
+    test_only)
+        # INFO: run hive node and enter .venv first before run this command.
+        test_only
         ;;
     stop)
         stop

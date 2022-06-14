@@ -15,11 +15,11 @@ from hive.util.error_code import BAD_REQUEST, SUCCESS
 from hive.util.payment.vault_service_manage import can_access_vault, update_vault_db_use_storage_byte
 from src.modules.ipfs.ipfs_files import IpfsFiles
 from src.utils.consts import COL_IPFS_FILES_SHA256
-from src.utils.http_response import v2_wrapper
+from hive.util.v2_adapter import v2_wrapper
 
 
 def massage_keys_with_dollar_signs(d):
-    for key, value in d.items():
+    for key, value in d.copy().items():
         if key[0] == "$" and key not in [SCRIPTING_EXECUTABLE_CALLER_DID, SCRIPTING_EXECUTABLE_CALLER_APP_DID,
                                          SCRIPTING_EXECUTABLE_PARAMS]:
             d[key.replace("$", "'$'")] = d.pop(key)
@@ -31,7 +31,7 @@ def massage_keys_with_dollar_signs(d):
 
 
 def unmassage_keys_with_dollar_signs(d):
-    for key, value in d.items():
+    for key, value in d.copy().items():
         if key[0:3] == "'$'":
             d[key.replace("'$'", "$")] = d.pop(key)
         if type(value) is dict:
@@ -44,11 +44,11 @@ def unmassage_keys_with_dollar_signs(d):
 def get_script_content(response, *args):
     content = request.get_json(force=True, silent=True)
     if content is None:
-        return None, response.response_err(BAD_REQUEST, "parameter is not application/json")
+        return None, 'parameter is not application/json'
     for arg in args:
         data = content.get(arg, None)
         if data is None:
-            return None, response.response_err(BAD_REQUEST, "parameter " + arg + " is null")
+            return f'parameter {arg} is null'
     return content, None
 
 
@@ -70,7 +70,7 @@ def populate_with_params_values(did, app_did, options, params):
     if not options or not params:
         return None
 
-    for key, value in options.items():
+    for key, value in options.copy().items():
         if isinstance(value, dict):
             populate_with_params_values(did, app_did, value, params)
         elif isinstance(value, str):
@@ -259,7 +259,7 @@ def run_executable_file_upload(did, app_did, target_did, target_app_did, executa
             "row_id": row_id,
             "target_did": target_did,
             "target_app_did": target_app_did
-        }, hive_setting.DID_STOREPASS, algorithm='HS256')
+        }, hive_setting.PASSWORD, algorithm='HS256')
     }
 
     return data, None
@@ -305,7 +305,7 @@ def run_executable_file_download(did, app_did, target_did, target_app_did, execu
             "row_id": row_id,
             "target_did": target_did,
             "target_app_did": target_app_did
-        }, hive_setting.DID_STOREPASS, algorithm='HS256')
+        }, hive_setting.PASSWORD, algorithm='HS256')
     }
 
     return data, None

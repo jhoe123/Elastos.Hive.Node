@@ -6,6 +6,14 @@ Request utils.
 import json
 
 from flask import request
+from werkzeug.routing import BaseConverter
+
+
+class RegexConverter(BaseConverter):
+    """ Support regex on url match """
+    def __init__(self, url_map, *items):
+        super().__init__(url_map)
+        self.regex = items[0]
 
 
 class BaseParams:
@@ -41,6 +49,7 @@ class BaseParams:
 
 class RequestParams(BaseParams):
     def __init__(self):
+        """ request body args """
         super().__init__()
 
     def get_root(self):
@@ -67,7 +76,17 @@ class RequestParams(BaseParams):
             return def_val, f'Invalid parameter {key}.'
         return val, None
 
-    def get_dict(self, key):
+    def get_list(self, key, def_val=None):
+        def_list = [] if def_val is None else def_val
+        root, msg = self.get_root()
+        if msg:
+            return def_list, msg
+        val = root.get(key)
+        if type(val) != list:
+            return def_val, f'Invalid parameter {key}.'
+        return val, None
+
+    def get_dict(self, key) -> (dict, str):
         body, msg = self.get_root()
         if msg:
             return {}, msg
@@ -81,6 +100,7 @@ class RequestParams(BaseParams):
 
 class RequestArgs(BaseParams):
     def __init__(self):
+        """ url args """
         super().__init__()
 
     def get_root(self):

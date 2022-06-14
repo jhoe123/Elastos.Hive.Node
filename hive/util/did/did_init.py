@@ -1,7 +1,6 @@
 import logging
 import os
-import pathlib
-from hive.util.did.eladid import ffi, lib
+from src.utils.did.eladid import ffi, lib
 
 from hive.settings import hive_setting
 
@@ -26,10 +25,15 @@ def print_err(fun_name=None):
     err = "Error:: "
     if fun_name:
         err += fun_name + ": "
-    logging.error(f"{err + str(ffi.string(lib.DIDError_GetLastErrorMessage()), encoding='utf-8')}")
+    error_msg = lib.DIDError_GetLastErrorMessage()
+    msg = str(ffi.string(error_msg), encoding='utf-8') if error_msg else 'Unknown DID error.'
+    logging.error(f"{err + msg}")
 
 def get_error_message():
-    return str(ffi.string(lib.DIDError_GetLastErrorMessage()), encoding='utf-8')
+    error_msg = lib.DIDError_GetLastErrorMessage()
+    if not error_msg:
+        return 'Unknown DID error.'
+    return str(ffi.string(error_msg), encoding='utf-8')
 
 
 def init_did_store(name):
@@ -67,7 +71,7 @@ def get_did(identity):
     return did
 
 def check_did(store, did):
-    if lib.DIDStore_ContainsDID(store, did) == 1 and lib.DIDSotre_ContainsPrivateKeys(store, did) == 1:
+    if lib.DIDStore_ContainsDID(store, did) == 1 and lib.DIDStore_ContainsPrivateKeys(store, did) == 1:
         doc = lib.DIDStore_LoadDID(store, did)
         if doc:
             return doc
@@ -115,17 +119,16 @@ def init_did(mnemonic, passphrase, storepass, name, need_resolve=True):
     if need_resolve:
         doc = resolve_did(store, did, identity)
     else:
-        doc = lib.RootIdentity_NewDIDByIndex(identity, 0, storepass, ffi.NULL)
+        doc = lib.RootIdentity_NewDIDByIndex(identity, 0, storepass, ffi.NULL, True)
     destroy_identity(identity)
 
     return store, did, doc
 
 def init_did_backend():
     print("Initializing the [Auth] module")
-    print("    DID Resolver: " + hive_setting.DID_RESOLVER)
-    print("    DID Mnemonic: " + hive_setting.DID_MNEMONIC)
+    print("    DID Resolver: " + hive_setting.EID_RESOLVER_URL)
 
-    ret = lib.DIDBackend_InitializeDefault(ffi.NULL, hive_setting.DID_RESOLVER.encode(), hive_setting.DID_DATA_CACHE_PATH.encode())
+    ret = lib.DIDBackend_InitializeDefault(ffi.NULL, hive_setting.EID_RESOLVER_URL.encode(), hive_setting.DID_DATA_CACHE_PATH.encode())
     if ret == -1:
         print_err("DIDBackend_InitializeDefault")
 

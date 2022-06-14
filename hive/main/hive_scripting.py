@@ -29,7 +29,7 @@ from hive.util.payment.vault_service_manage import can_access_vault, update_vaul
     inc_vault_file_use_storage_byte
 from hive.util.server_response import ServerResponse
 from src.modules.ipfs.ipfs_files import IpfsFiles
-from src.utils.http_response import v2_wrapper
+from hive.util.v2_adapter import v2_wrapper
 
 
 class HiveScripting:
@@ -46,7 +46,7 @@ class HiveScripting:
             uri = hive_setting.MONGO_URI
             connection = MongoClient(uri)
         else:
-            connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+            connection = MongoClient(hive_setting.MONGODB_URI)
 
         db_name = gene_mongo_db_name(did, app_id)
         db = connection[db_name]
@@ -183,6 +183,7 @@ class HiveScripting:
         if not capture_output:
             capture_output = executable.get('output', False)
 
+        data = None
         if executable_type == SCRIPTING_EXECUTABLE_TYPE_AGGREGATED:
             err_message = None
             for i, e in enumerate(executable_body):
@@ -213,6 +214,7 @@ class HiveScripting:
         else:
             if capture_output:
                 output[output_key] = data
+        # @fred: The error of executable will be taken as success.
         return output
 
     def __count_nested_condition(self, condition):
@@ -285,6 +287,9 @@ class HiveScripting:
         return self.response.response_ok(data)
 
     def __run_script(self, script_name, caller_did, caller_app_did, target_did, target_app_did, params):
+        """
+        :return: ok or error response
+        """
         r, msg = can_access_vault(target_did, VAULT_ACCESS_R)
         if r != SUCCESS:
             logging.debug(f"Error while executing script named '{script_name}': vault can not be accessed")
@@ -357,21 +362,21 @@ class HiveScripting:
         output = {}
         data = self.__executable_execution(caller_did, caller_app_did, target_did, target_app_did, executable, params,
                                            output=output, output_key=executable.get('name', "output0"))
-        return data
+        return self.response.response_ok(data)
 
     def run_script_url(self, target_did, target_app_did, script_name, params):
         # Get caller info
         caller_did, caller_app_did = did_auth()
 
-        data = self.__run_script(script_name, caller_did, caller_app_did, target_did, target_app_did, params)
-
-        return self.response.response_ok(data)
+        return self.__run_script(script_name, caller_did, caller_app_did, target_did, target_app_did, params)
 
     def run_script(self):
         # Request script content first
         content, err = get_script_content(self.response, "name")
         if err:
-            return err
+            msg = f'Failed to get the script content: {err}'
+            logging.debug(msg)
+            return self.response.response_err(BAD_REQUEST, msg)
 
         script_name = content.get('name')
         caller_did, caller_app_did = did_auth()
@@ -389,9 +394,7 @@ class HiveScripting:
             return self.response.response_err(BAD_REQUEST, "target_app_did not set")
 
         params = content.get('params', None)
-        data = self.__run_script(script_name, caller_did, caller_app_did, target_did, target_app_did, params)
-
-        return self.response.response_ok(data)
+        return self.__run_script(script_name, caller_did, caller_app_did, target_did, target_app_did, params)
 
     def run_script_upload(self, transaction_id):
         row_id, target_did, target_app_did, file_name, err = self.run_script_fileapi_setup(transaction_id, "upload")
@@ -432,7 +435,7 @@ class HiveScripting:
     def run_script_fileapi_setup(self, transaction_id, fileapi_type):
         # Request script content first
         try:
-            transaction_detail = jwt.decode(transaction_id, hive_setting.DID_STOREPASS, algorithms=['HS256'])
+            transaction_detail = jwt.decode(transaction_id, hive_setting.PASSWORD, algorithms=['HS256'])
             row_id, target_did, target_app_did = transaction_detail.get('row_id', None), transaction_detail.get('target_did', None), \
                                                  transaction_detail.get('target_app_did', None)
         except Exception as e:

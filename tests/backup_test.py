@@ -3,7 +3,6 @@
 """
 Testing file for the ipfs-backup module.
 """
-import time
 import unittest
 
 from tests import init_test
@@ -37,12 +36,6 @@ class IpfsBackupTestCase(unittest.TestCase):
         response = self.backup_cli.get('/subscription/backup')
         self.assertEqual(response.status_code, 200)
 
-    def test03_backup(self):
-        r = self.cli.post('/vault/content?to=hive_node',
-                          body={'credential': self.cli.get_backup_credential()})
-        self.assertEqual(r.status_code, 201)
-        time.sleep(10)
-
     def test03_backup_invalid_parameter(self):
         r = self.cli.post('/vault/content?to=hive_node')
         self.assertEqual(r.status_code, 400)
@@ -56,12 +49,6 @@ class IpfsBackupTestCase(unittest.TestCase):
     def test04_state(self):
         r = self.cli.get('/vault/content')
         self.assertEqual(r.status_code, 200)
-
-    def test05_restore(self):
-        r = self.cli.post('/vault/content?from=hive_node',
-                          body={'credential': self.cli.get_backup_credential()})
-        self.assertEqual(r.status_code, 201)
-        time.sleep(10)
 
     def test05_restore_invalid_parameter(self):
         r = self.cli.post('/vault/content?from=hive_node')
@@ -84,7 +71,6 @@ class IpfsBackupTestCase(unittest.TestCase):
         response = self.backup_cli.get('/subscription/vault')
         self.assertEqual(response.status_code, 200)
 
-    @unittest.skip
     def test07_unsubscribe(self):
         response = self.backup_cli.delete('/subscription/backup')
         self.assertEqual(response.status_code, 204)

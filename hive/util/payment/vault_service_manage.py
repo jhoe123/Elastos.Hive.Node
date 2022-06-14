@@ -14,7 +14,7 @@ from hive.util.constants import DID_INFO_DB_NAME, VAULT_SERVICE_COL, VAULT_SERVI
 
 from hive.util.did_file_info import get_dir_size, get_vault_path
 from hive.util.did_info import get_all_did_info_by_did
-from hive.util.did_mongo_db_resource import delete_mongo_database, get_mongo_database_size
+from hive.util.did_mongo_db_resource import delete_mongo_database, get_mongo_database_size, count_file_app_storage_size
 from hive.util.error_code import NOT_FOUND, LOCKED, NOT_ENOUGH_SPACE, SUCCESS, METHOD_NOT_ALLOWED
 from hive.util.payment.payment_config import PaymentConfig
 from hive.util.payment.vault_backup_service_manage import get_vault_backup_service
@@ -29,7 +29,7 @@ def setup_vault_service(did, max_storage, service_days, pricing_name=VAULT_SERVI
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -62,7 +62,7 @@ def update_vault_service(did, max_storage, service_days, pricing_name):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -91,7 +91,7 @@ def remove_vault_service(did):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -113,7 +113,7 @@ def update_vault_service_state(did, state):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -135,7 +135,7 @@ def get_vault_service(did):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -190,7 +190,7 @@ def proc_expire_vault_job():
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -233,18 +233,32 @@ def delete_db_storage(did):
         delete_mongo_database(did_info[DID], did_info[APP_ID])
 
 
+def count_file_all_storage_size(user_did):
+    if not user_did:
+        return 0.0
+    did_info_list = get_all_did_info_by_did(user_did)
+    total_size = 0.0
+    for did_info in did_info_list:
+        if not did_info[APP_ID]:
+            continue
+        total_size += count_file_app_storage_size(user_did, did_info[APP_ID])
+    return total_size
+
+
 def count_vault_storage_job():
     if hive_setting.MONGO_URI:
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
     info_list = col.find()
     for service in info_list:
-        file_size = count_file_system_storage_size(service[VAULT_SERVICE_DID])
+        """ Replace this with file metadata counting because supporting IPFS files. """
+        # file_size = count_file_system_storage_size(service[VAULT_SERVICE_DID])
+        file_size = count_file_all_storage_size(service[VAULT_SERVICE_DID])
         db_size = count_db_storage_size(service[VAULT_SERVICE_DID])
         now = datetime.utcnow().timestamp()
         query_id = {"_id": service["_id"]}
@@ -263,7 +277,7 @@ def get_vault_used_storage(did):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -281,7 +295,7 @@ def __less_than_max_storage(did):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -299,7 +313,7 @@ def inc_vault_file_use_storage_byte(did, size):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -319,7 +333,7 @@ def update_vault_db_use_storage_byte(did, size):
         uri = hive_setting.MONGO_URI
         connection = MongoClient(uri)
     else:
-        connection = MongoClient(host=hive_setting.MONGO_HOST, port=hive_setting.MONGO_PORT)
+        connection = MongoClient(hive_setting.MONGODB_URI)
 
     db = connection[DID_INFO_DB_NAME]
     col = db[VAULT_SERVICE_COL]
@@ -332,3 +346,8 @@ def update_vault_db_use_storage_byte(did, size):
     value = {"$set": dic}
     ret = col.update_one(query, value)
     return ret
+
+
+if __name__ == "__main__":
+    file_size = count_file_all_storage_size("did:elastos:imedtHyjLS155Gedhv7vKP3FTWjpBUAUm4")
+    print(f'file_size: {file_size}')
