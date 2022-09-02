@@ -10,7 +10,6 @@ from pymongo import MongoClient
 
 from src.settings import hive_setting
 from src.utils.http_exception import BadRequestException
-from src.utils_v1.constants import DATETIME_FORMAT
 from src.utils_v1.common import did_tail_part
 
 
@@ -20,6 +19,14 @@ def create_db_client():
 
 
 def convert_oid(query, update=False):
+    """ for v2: to make the following convert
+
+        "group_id": {"$oid": "5f497bb83bd36ab235d82e6a"}
+
+    to:
+
+        "group_id": ObjectId("5f497bb83bd36ab235d82e6a")
+    """
     new_query = {}
     for key, value in query.items():
         new_query[key] = value
@@ -36,21 +43,11 @@ def convert_oid(query, update=False):
     return new_query
 
 
-def options_filter(body, args):
-    ops = dict()
-    if not body or "options" not in body:
-        return ops
-    options = body["options"]
-    for arg in args:
-        if arg in options:
-            ops[arg] = options[arg]
-    return ops
-
-
-def options_pop_timestamp(request_body):
-    if "options" not in request_body:
-        return True
-    return request_body.get('options').pop('timestamp', True)
+def options_filter(body, option_keys):
+    """ filter options in options_keys from the "options" of body """
+    if not body or not isinstance(body.get('options'), dict):
+        return {}
+    return {k: v for k, v in body.get('options').items() if k in option_keys}
 
 
 def gene_sort(sorts_src):
@@ -68,24 +65,6 @@ def populate_options_insert_one(content):
     return options
 
 
-def query_insert_one(col, content, options, created=False):
-    try:
-        if created:
-            content["document"]["created"] = datetime.strptime(content["document"]["created"], DATETIME_FORMAT)
-        else:
-            content["document"]["created"] = datetime.utcnow()
-        content["document"]["modified"] = datetime.utcnow()
-        ret = col.insert_one(convert_oid(content["document"]), **options)
-
-        data = {
-            "acknowledged": ret.acknowledged,
-            "inserted_id": str(ret.inserted_id)
-        }
-        return data, None
-    except Exception as e:
-        return None, f"Exception: method: 'query_insert_one', Err: {str(e)}"
-
-
 def populate_options_update_one(content):
     options = options_filter(content, ("upsert", "bypass_document_validation"))
     return options
@@ -94,14 +73,15 @@ def populate_options_update_one(content):
 def query_update_one(col, content, options):
     try:
         update_set_on_insert = content.get('update').get('$setOnInsert', None)
+        now = int(datetime.now().timestamp())
         if update_set_on_insert:
-            content["update"]["$setOnInsert"]['created'] = datetime.utcnow()
+            content["update"]["$setOnInsert"]['created'] = now
         else:
             content["update"]["$setOnInsert"] = {
-                "created": datetime.utcnow()
+                "created": now
             }
         if "$set" in content["update"]:
-            content["update"]["$set"]["modified"] = datetime.utcnow()
+            content["update"]["$set"]["modified"] = now
         ret = col.update_one(convert_oid(content["filter"]), convert_oid(content["update"], update=True), **options)
         data = {
             "acknowledged": ret.acknowledged,
@@ -195,16 +175,6 @@ def delete_mongo_database(did, app_did):
     connection.drop_database(db_name)
 
 
-def get_mongo_database_size(did, app_did):
-    connection = create_db_client()
-    db_name = gene_mongo_db_name(did, app_did)
-    db = connection[db_name]
-    status = db.command("dbstats")
-    storage_size = status["storageSize"]
-    index_size = status["indexSize"]
-    return storage_size + index_size
-
-
 def get_save_mongo_db_path(did):
     path = Path(hive_setting.VAULTS_BASE_DIR)
     if path.is_absolute():
@@ -219,18 +189,20 @@ def dump_mongodb_to_full_path(db_name, full_path: Path):
         line2 = f'mongodump --uri="{hive_setting.MONGODB_URI}" -d {db_name} --archive="{full_path.as_posix()}"'
         subprocess.check_output(line2, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        raise BadRequestException(msg=f'Failed to dump database {db_name}: {e.output}')
+        raise BadRequestException(f'Failed to dump database {db_name}: {e.output}')
 
 
 def restore_mongodb_from_full_path(full_path: Path):
     if not full_path.exists():
-        raise BadRequestException(msg=f'Failed to import mongo db by invalid full dir {full_path.as_posix()}')
+        raise BadRequestException(f'Failed to import mongo db by invalid full dir {full_path.as_posix()}')
 
     try:
+        # https://www.mongodb.com/docs/database-tools/mongorestore/#cmdoption--drop
+        # --drop: drop collections before restore, but does not drop collections that are not in the backup.
         line2 = f'mongorestore --uri="{hive_setting.MONGODB_URI}" --drop --archive="{full_path.as_posix()}"'
         subprocess.check_output(line2, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        raise BadRequestException(msg=f'Failed to load database by {full_path.as_posix()}: {e.output}')
+        raise BadRequestException(f'Failed to load database by {full_path.as_posix()}: {e.output}')
 
 
 def delete_mongo_db_export(did):

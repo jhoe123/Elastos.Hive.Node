@@ -13,7 +13,7 @@ from src.utils.http_response import response_stream
 
 class RegisterScript(Resource):
     def __init__(self):
-        self.scripting = Scripting(is_ipfs=True)
+        self.scripting = Scripting()
 
     def put(self, script_name):
         """ Register a new script for the vault data owner by the script name.
@@ -90,6 +90,14 @@ class RegisterScript(Resource):
         .. sourcecode:: http
 
             HTTP/1.1 400 Bad Request
+
+        .. sourcecode:: http
+
+            HTTP/1.1 403 Forbidden
+
+        .. sourcecode:: http
+
+            HTTP/1.1 507 Insufficient Storage
 
         **Condition**
 
@@ -172,7 +180,7 @@ class RegisterScript(Resource):
 
 class DeleteScript(Resource):
     def __init__(self):
-        self.scripting = Scripting(is_ipfs=True)
+        self.scripting = Scripting()
 
     def delete(self, script_name):
         """ Remove the script by the script name and the script can not be called anymore.
@@ -203,6 +211,10 @@ class DeleteScript(Resource):
 
         .. sourcecode:: http
 
+            HTTP/1.1 403 Forbidden
+
+        .. sourcecode:: http
+
             HTTP/1.1 404 Not Found
 
         """
@@ -211,7 +223,7 @@ class DeleteScript(Resource):
 
 class CallScript(Resource):
     def __init__(self):
-        self.scripting = Scripting(is_ipfs=True)
+        self.scripting = Scripting()
 
     def patch(self, script_name):
         """ Run the script registered by the owner.
@@ -270,13 +282,17 @@ class CallScript(Resource):
 
             HTTP/1.1 404 Not Found
 
+        .. sourcecode:: http
+
+            HTTP/1.1 403 Forbidden
+
         """
         return self.scripting.run_script(script_name)
 
 
 class CallScriptUrl(Resource):
     def __init__(self):
-        self.scripting = Scripting(is_ipfs=True)
+        self.scripting = Scripting()
 
     def get(self, script_name, context_str, params):
         """ Run the script registered by the owner by the URL parameters.
@@ -324,6 +340,10 @@ class CallScriptUrl(Resource):
 
             HTTP/1.1 404 Not Found
 
+        .. sourcecode:: http
+
+            HTTP/1.1 403 Forbidden
+
         """
         target_did, target_app_did = None, None
         parts = context_str.split('@')
@@ -334,7 +354,7 @@ class CallScriptUrl(Resource):
 
 class UploadFile(Resource):
     def __init__(self):
-        self.scripting = Scripting(is_ipfs=True)
+        self.scripting = Scripting()
 
     def put(self, transaction_id):
         """ Upload file by transaction id returned by the running script for the executable type 'fileUpload'.
@@ -367,13 +387,21 @@ class UploadFile(Resource):
 
             HTTP/1.1 404 Not Found
 
+        .. sourcecode:: http
+
+            HTTP/1.1 403 Forbidden
+
+        .. sourcecode:: http
+
+            HTTP/1.1 507 Insufficient Storage
+
         """
         return self.scripting.upload_file(transaction_id)
 
 
 class DownloadFile(Resource):
     def __init__(self):
-        self.scripting = Scripting(is_ipfs=True)
+        self.scripting = Scripting()
 
     @response_stream
     def get(self, transaction_id):

@@ -8,6 +8,7 @@ import os
 
 from src.utils.did.eladid import ffi, lib
 from src.utils.did.did_wrapper import Credential
+from src.modules.auth.user import UserManager
 
 from hive.util.did.v1_entity import V1Entity
 from hive.util.did_info import add_did_nonce_to_db, create_nonce, get_did_info_by_nonce, \
@@ -16,7 +17,7 @@ from hive.util.did_info import add_did_nonce_to_db, create_nonce, get_did_info_b
 from hive.util.error_code import UNAUTHORIZED, INTERNAL_SERVER_ERROR, BAD_REQUEST, SUCCESS
 from hive.util.server_response import ServerResponse
 from hive.settings import hive_setting
-from hive.util.constants import DID_INFO_NONCE_EXPIRED, APP_INSTANCE_DID
+from hive.util.constants import DID_INFO_NONCE_EXPIRED, APP_INSTANCE_DID, DID, APP_ID
 
 ACCESS_AUTH_COL = "did_auth"
 ACCESS_TOKEN = "access_token"
@@ -28,6 +29,7 @@ class HiveAuth(V1Entity):
     def __init__(self):
         self.app = None
         self.response = ServerResponse("HiveSync")
+        self.user_manager = UserManager()
 
     def init_app(self, app):
         self.app = app
@@ -54,11 +56,10 @@ class HiveAuth(V1Entity):
 
         spec_did_str = ffi.string(lib.DID_GetMethodSpecificId(did)).decode()
         try:
-            with open(hive_setting.DID_DATA_LOCAL_DIDS+ os.sep + spec_did_str, "w") as f:
+            with open(hive_setting.DID_DATA_LOCAL_DIDS + os.sep + spec_did_str, "w") as f:
                 f.write(doc_str)
         except Exception as e:
-            logging.getLogger("HiveAuth").error(
-                f"Exception in sign_in:{str(e)}")
+            logging.getLogger("HiveAuth").error(f"Exception in sign_in:{str(e)}")
 
         did_str = "did:" + ffi.string(lib.DID_GetMethod(did)).decode() + ":" + spec_did_str
 
@@ -108,6 +109,9 @@ class HiveAuth(V1Entity):
         # save to db
         if not self.__save_auth_info_to_db(auth_info, access_token):
             return self.response.response_err(UNAUTHORIZED, "save to db fail!")
+
+        # auth_register is just a temporary collection, need keep relation here
+        self.user_manager.add_app_if_not_exists(auth_info["userDid"], auth_info["appDid"])
 
         # response token
         data = {
@@ -287,7 +291,16 @@ class HiveAuth(V1Entity):
         if access_token == "":
             return None, "The token is None!"
 
-        return self.get_info_from_token(access_token)
+        info, err_msg = self.get_info_from_token(access_token)
+        if err_msg is not None:
+            return None, err_msg
+
+        # @deprecated save the relationship between user did and app did
+        # backup module not used in v1, so here is from user
+        if info.get(DID, None) and info.get(APP_ID, None):
+            UserManager().add_app_if_not_exists(info[DID], info[APP_ID])
+
+        return info, None
 
     def get_info_from_token(self, token):
         if token is None:
@@ -459,7 +472,8 @@ class HiveAuth(V1Entity):
 
         #auth_token
         vp_json = self.create_presentation_str(Credential(vc), nonce, hive_did)
-        auth_token = self.create_vp_token(vp_json, subject, hive_did, hive_setting.AUTH_CHALLENGE_EXPIRED)
+        expire = int(datetime.now().timestamp()) + hive_setting.AUTH_CHALLENGE_EXPIRED
+        auth_token = self.create_vp_token(vp_json, subject, hive_did, expire)
         if auth_token is None:
             return None, None, "create_vp_token error."
         return auth_token, hive_did, None

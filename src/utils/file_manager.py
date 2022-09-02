@@ -15,16 +15,14 @@ from pathlib import Path
 from flask import request
 from flask_rangerequest import RangeRequest
 
+from src.modules.auth.user import UserManager
 from src.settings import hive_setting
 from src.utils.consts import COL_IPFS_FILES, COL_IPFS_FILES_IPFS_CID, DID, SIZE, COL_IPFS_FILES_SHA256, \
     COL_IPFS_FILES_PATH, USR_DID, APP_DID
 from src.utils.db_client import cli
 from src.utils_v1.common import deal_dir, get_file_md5_info, create_full_path_dir, gene_temp_file_name
-from src.utils_v1.constants import CHUNK_SIZE, DID_INFO_DB_NAME, VAULT_SERVICE_COL, VAULT_SERVICE_MAX_STORAGE, \
-    VAULT_SERVICE_FILE_USE_STORAGE, VAULT_SERVICE_DB_USE_STORAGE
+from src.utils_v1.constants import CHUNK_SIZE, DID_INFO_DB_NAME, VAULT_SERVICE_COL, VAULT_SERVICE_MAX_STORAGE
 from src.utils_v1.did_file_info import get_save_files_path, get_user_did_path, get_directory_size
-from src.utils_v1.payment.vault_backup_service_manage import get_vault_backup_path
-from src.utils_v1.payment.vault_service_manage import update_used_storage_for_files_data, update_used_storage_for_mongodb_data
 from src.utils.http_exception import BadRequestException, VaultNotFoundException
 
 
@@ -33,6 +31,7 @@ class FileManager:
         self._http = None
         self.ipfs_url = hive_setting.IPFS_NODE_URL
         self.ipfs_gateway_url = hive_setting.IPFS_GATEWAY_URL
+        self.user_manager = UserManager()
 
     @property
     def http(self):
@@ -41,23 +40,11 @@ class FileManager:
             self._http = HttpClient()
         return self._http
 
-    def get_vault_storage_size(self, user_did):
-        doc = cli.find_one_origin(DID_INFO_DB_NAME, VAULT_SERVICE_COL, {DID: user_did})
-        if not doc:
-            raise VaultNotFoundException(msg='Vault not found for get storage size.')
-        return int(doc[VAULT_SERVICE_FILE_USE_STORAGE] + doc[VAULT_SERVICE_DB_USE_STORAGE])
-
     def get_vault_max_size(self, user_did):
         doc = cli.find_one_origin(DID_INFO_DB_NAME, VAULT_SERVICE_COL, {DID: user_did})
         if not doc:
-            raise VaultNotFoundException(msg='Vault not found for get max size.')
+            raise VaultNotFoundException('Vault not found for get max size.')
         return int(doc[VAULT_SERVICE_MAX_STORAGE])
-
-    def update_vault_files_usage(self, user_did, size):
-        update_used_storage_for_files_data(user_did, size, is_reset=True)
-
-    def update_vault_dbs_usage(self, user_did, size):
-        update_used_storage_for_mongodb_data(user_did, size)
 
     def get_file_checksum_list(self, root_path: Path) -> list:
         """
@@ -78,7 +65,7 @@ class FileManager:
 
     def write_file_by_response(self, response, file_path: Path, is_temp=False):
         if not self.create_parent_dir(file_path):
-            raise BadRequestException(msg=f'Failed to create parent folder for file {file_path.name}')
+            raise BadRequestException(f'Failed to create parent folder for file {file_path.name}')
 
         if is_temp:
             def on_save_to_temp(temp_file):
@@ -93,7 +80,7 @@ class FileManager:
 
     def write_file_by_request_stream(self, file_path: Path):
         if not self.create_parent_dir(file_path):
-            raise BadRequestException(msg=f'Failed to create parent directory to hold file {file_path.name}.')
+            raise BadRequestException(f'Failed to create parent directory to hold file {file_path.name}.')
 
         def on_save_to_temp(temp_file):
             with open(temp_file.as_posix(), "bw") as f:
@@ -133,9 +120,6 @@ class FileManager:
     def delete_file(self, file_path: Path):
         if file_path.exists() and file_path.is_file():
             file_path.unlink()
-
-    def delete_vault_file(self, user_did, name):
-        self.delete_file((get_vault_backup_path(user_did) / name).resolve())
 
     def ipfs_gen_cache_file_name(self, path: str):
         return path.replace('/', '_').replace('\\', '_')
@@ -189,7 +173,7 @@ class FileManager:
             etag = RangeRequest.make_etag(f)
         return RangeRequest(open(path.as_posix(), 'rb'),
                             etag=etag,
-                            last_modified=datetime.utcnow(),
+                            last_modified=datetime.now(),
                             size=size).make_response()
 
     def ipfs_download_file_to_path(self, cid, path: Path, is_proxy=False, sha256=None, size=None):
@@ -210,7 +194,7 @@ class FileManager:
         msg = fm.ipfs_download_file_to_path(cid, temp_file, is_proxy=is_proxy, sha256=sha256, size=size)
         if msg:
             temp_file.unlink()
-            raise BadRequestException(msg=msg)
+            raise BadRequestException(msg)
         with temp_file.open() as f:
             metadata = json.load(f)
         temp_file.unlink()
@@ -222,8 +206,25 @@ class FileManager:
                                    is_json=False, files=files, success_code=200)
         return json_data['Hash']
 
+    def ipfs_local_exist_cid(self, cid):
+        try:
+            response = self.http.post(f'{self.ipfs_url}/api/v0/cat?arg={cid}', None, None, is_body=False, success_code=200)
+            return True
+        except BadRequestException as e:
+            return False
+
     def ipfs_unpin_cid(self, cid):
-        response = self.http.post(self.ipfs_url + f'/api/v0/pin/rm?arg=/ipfs/{cid}&recursive=true', None, None, is_body=False, success_code=200)
+        logging.info(f'[fm.ipfs_unpin_cid] Try to unpin {cid} in backup node.')
+
+        if not self.ipfs_local_exist_cid(cid):
+            return
+
+        try:
+            response = self.http.post(self.ipfs_url + f'/api/v0/pin/rm?arg=/ipfs/{cid}&recursive=true', None, None, is_body=False, success_code=200)
+        except BadRequestException as e:
+            # skip this error
+            if 'not pinned or pinned indirectly' not in e.msg:
+                raise e
 
     def get_file_cids(self, user_did):
         databases = cli.get_all_user_databases(user_did)
@@ -237,10 +238,11 @@ class FileManager:
         return total_size, list(cids)
 
     def get_file_cid_metadatas(self, user_did):
-        databases = cli.get_all_user_database_names(user_did)
+        """ get all cid infos from user's vault """
+        database_names = self.user_manager.get_database_names(user_did)
         total_size, cids = 0, list()
-        for d in databases:
-            docs = cli.find_many_origin(d, COL_IPFS_FILES, {USR_DID: user_did},
+        for database_name in database_names:
+            docs = cli.find_many_origin(database_name, COL_IPFS_FILES, {USR_DID: user_did},
                                         create_on_absence=False, throw_exception=False)
             for doc in docs:
                 mt = self._get_cid_metadata_from_list(cids, doc)

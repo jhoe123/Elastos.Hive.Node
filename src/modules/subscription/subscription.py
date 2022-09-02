@@ -10,17 +10,18 @@ import typing as t
 
 from flask import g
 
+from src import hive_setting
 from src.modules.auth.auth import Auth
+from src.modules.auth.user import UserManager
+from src.modules.payment.order import OrderManager
+from src.modules.subscription.vault import VaultManager, Vault
 from src.utils.consts import IS_UPGRADED
 from src.utils_v1.constants import DID_INFO_DB_NAME, VAULT_SERVICE_COL, VAULT_SERVICE_DID, VAULT_SERVICE_MAX_STORAGE, \
     VAULT_SERVICE_FILE_USE_STORAGE, VAULT_SERVICE_DB_USE_STORAGE, VAULT_SERVICE_START_TIME, VAULT_SERVICE_END_TIME, \
-    VAULT_SERVICE_MODIFY_TIME, VAULT_SERVICE_STATE, VAULT_SERVICE_PRICING_USING, APP_ID, VAULT_ACCESS_R, USER_DID
+    VAULT_SERVICE_MODIFY_TIME, VAULT_SERVICE_STATE, VAULT_SERVICE_PRICING_USING, VAULT_SERVICE_STATE_RUNNING
 from src.utils.did.did_wrapper import DID, DIDDocument
-from src.utils_v1.did_file_info import get_vault_path
 from src.utils_v1.payment.payment_config import PaymentConfig
-from src.utils_v1.payment.vault_service_manage import delete_user_vault_data
-from src.modules.payment.payment import Payment
-from src.utils.db_client import cli, VAULT_SERVICE_STATE_RUNNING
+from src.utils.db_client import cli
 from src.utils.file_manager import fm
 from src.utils.http_exception import AlreadyExistsException, NotImplementedException, VaultNotFoundException, \
     PricePlanNotFoundException, BadRequestException, ApplicationNotFoundException
@@ -29,21 +30,24 @@ from src.utils.singleton import Singleton
 
 class VaultSubscription(metaclass=Singleton):
     def __init__(self):
-        self.payment = Payment()
         self.auth = Auth()
+        self.user_manager = UserManager()
+        self.order_manager = OrderManager()
+        self.vault_manager = VaultManager()
 
     def subscribe(self):
+        """ :v2 API: """
         self.get_checked_vault(g.usr_did, is_not_exist_raise=False)
         return self.__get_vault_info(self.create_vault(g.usr_did, self.get_price_plan('vault', 'Free')))
 
     def create_vault(self, user_did, price_plan, is_upgraded=False):
-        now = datetime.utcnow().timestamp()  # seconds in UTC
+        now = datetime.now().timestamp()  # seconds in UTC
         end_time = -1 if price_plan['serviceDays'] == -1 else now + price_plan['serviceDays'] * 24 * 60 * 60
         doc = {VAULT_SERVICE_DID: user_did,
-               VAULT_SERVICE_MAX_STORAGE: int(price_plan["maxStorage"]) * 1024 * 1024,
-               VAULT_SERVICE_FILE_USE_STORAGE: 0,
-               VAULT_SERVICE_DB_USE_STORAGE: 0,
-               IS_UPGRADED: is_upgraded,
+               VAULT_SERVICE_MAX_STORAGE: int(price_plan["maxStorage"]) * 1024 * 1024,  # unit: byte (MB on v1, checked by 1024 * 1024)
+               VAULT_SERVICE_FILE_USE_STORAGE: 0,  # unit: byte
+               VAULT_SERVICE_DB_USE_STORAGE: 0,  # unit: byte
+               IS_UPGRADED: is_upgraded,  # True, the vault is from the promotion.
                VAULT_SERVICE_START_TIME: now,
                VAULT_SERVICE_END_TIME: end_time,
                VAULT_SERVICE_MODIFY_TIME: now,
@@ -51,67 +55,81 @@ class VaultSubscription(metaclass=Singleton):
                VAULT_SERVICE_PRICING_USING: price_plan['name']}
         cli.insert_one_origin(DID_INFO_DB_NAME, VAULT_SERVICE_COL, doc, create_on_absence=True, is_extra=False)
         # INFO: user database will create with first collection creation.
-        if not fm.create_dir(get_vault_path(user_did)):
-            raise BadRequestException(msg='Failed to create folder for the user.')
+        if not fm.create_dir(hive_setting.get_user_vault_path(user_did)):
+            raise BadRequestException('Failed to create folder for the user.')
         return doc
 
-    def __get_vault_info(self, doc):
-        storage_quota = int(doc[VAULT_SERVICE_MAX_STORAGE] * 1024 * 1024) \
-                        if int(doc[VAULT_SERVICE_MAX_STORAGE]) < 1024 * 1024 \
-                        else int(doc[VAULT_SERVICE_MAX_STORAGE])
-        storage_used = int(doc[VAULT_SERVICE_FILE_USE_STORAGE] + doc[VAULT_SERVICE_DB_USE_STORAGE])
-        return {
-            'pricing_plan': doc[VAULT_SERVICE_PRICING_USING],
+    def __get_vault_info(self, doc, files_used=False):
+        vault = Vault(**doc)
+        info = {
             'service_did': self.auth.get_did_string(),
-            'storage_quota': storage_quota,
-            'storage_used': storage_used,
+            'pricing_plan': doc[VAULT_SERVICE_PRICING_USING],
+            'storage_quota': vault.get_storage_quota(),
+            'storage_used': vault.get_storage_usage(),
+            'start_time': int(doc[VAULT_SERVICE_START_TIME]),
+            'end_time': int(doc[VAULT_SERVICE_END_TIME]),
             'created': cli.timestamp_to_epoch(doc[VAULT_SERVICE_START_TIME]),
             'updated': cli.timestamp_to_epoch(doc[VAULT_SERVICE_MODIFY_TIME]),
         }
 
+        if files_used:
+            info['files_used'] = vault.get_files_usage()
+
+        return info
+
     def unsubscribe(self):
+        """ :v2 API: """
         doc = self.get_checked_vault(g.usr_did)
+
         logging.debug(f'start remove the vault of the user {g.usr_did}, _id, {str(doc["_id"])}')
-        delete_user_vault_data(g.usr_did)
-        apps = cli.get_all_user_apps(g.usr_did)
-        for app in apps:
-            cli.remove_database(g.usr_did, app[APP_ID])
-        self.payment.archive_orders(g.usr_did)
+
+        self.vault_manager.drop_vault_data(g.usr_did)
+        self.order_manager.archive_orders_receipts(g.usr_did)
+        # INFO: maybe user has a backup service
+        # self.user_manager.remove_user(g.usr_did)
+
         cli.delete_one_origin(DID_INFO_DB_NAME, VAULT_SERVICE_COL, {VAULT_SERVICE_DID: g.usr_did}, is_check_exist=False)
 
     def activate(self):
-        raise NotImplementedException()
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did)
+        self.vault_manager.activate_vault(g.usr_did, is_activate=True)
 
     def deactivate(self):
-        raise NotImplementedException()
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did)
+        self.vault_manager.activate_vault(g.usr_did, is_activate=False)
 
-    def get_info(self):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_R)
-        doc = self.get_checked_vault(g.usr_did)
-        return self.__get_vault_info(doc)
+    def get_info(self, files_used: bool):
+        """ :v2 API:
+
+        :param files_used for files usage testing
+        """
+        vault = self.vault_manager.get_vault(g.usr_did)
+        return self.__get_vault_info(vault, files_used)
 
     def get_app_stats(self):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_R)
-        apps = cli.get_all_user_apps(g.usr_did)
-        results = list(filter(lambda b: b is not None, map(lambda a: self.get_app_detail(a), apps)))
+        """ :v2 API: """
+        app_dids = self.user_manager.get_apps(g.usr_did)
+        results = list(filter(lambda b: b is not None, map(lambda app_did: self.get_app_detail(g.usr_did, app_did), app_dids)))
         if not results:
             raise ApplicationNotFoundException()
         return {"apps": results}
 
-    def get_app_detail(self, app):
+    def get_app_detail(self, user_did, app_did):
         info = {}
         try:
-            info = self._get_appdid_info_by_did(app[APP_ID])
+            info = self._get_appdid_info_by_did(app_did)
         except Exception as e:
-            logging.error(f'get the info of the app did {app[APP_ID]} failed: {str(e)}')
-        name = cli.get_user_database_name(app[USER_DID], app[APP_ID])
+            logging.error(f'get the info of the app did {app_did} failed: {str(e)}')
+        name = cli.get_user_database_name(user_did, app_did)
         return {
             "name": info.get('name', ''),
             "developer_did": info.get('developer', ''),
             "icon_url": info.get('icon_url', ''),
             "redirect_url": info.get('redirect_url', ''),
-            "user_did": app[USER_DID],
-            "app_did": app[APP_ID],
+            "user_did": user_did,
+            "app_did": app_did,
             "used_storage_size": int(fm.ipfs_get_app_file_usage(name) + cli.get_database_size(name))
         }
 
@@ -161,27 +179,8 @@ class VaultSubscription(metaclass=Singleton):
         if throw_exception and is_not_exist_raise and not doc:
             raise VaultNotFoundException()
         if throw_exception and not is_not_exist_raise and doc:
-            raise AlreadyExistsException(msg='The vault already exists.')
+            raise AlreadyExistsException('The vault already exists.')
         return doc
-
-    def upgrade_vault_plan(self, user_did, vault, pricing_name):
-        remain_days = 0
-        now = datetime.utcnow().timestamp()  # seconds in UTC
-        plan = self.get_price_plan('vault', pricing_name)
-        if vault[VAULT_SERVICE_END_TIME] != -1:
-            cur_plan = self.get_price_plan('vault', vault[VAULT_SERVICE_PRICING_USING])
-            remain_days = self._get_remain_days(cur_plan, vault[VAULT_SERVICE_END_TIME], now, plan)
-
-        end_time = -1 if plan['serviceDays'] == -1 else now + (plan['serviceDays'] + remain_days) * 24 * 60 * 60
-        col_filter = {VAULT_SERVICE_DID: user_did}
-        update = {VAULT_SERVICE_PRICING_USING: pricing_name,
-                  VAULT_SERVICE_MAX_STORAGE: int(plan["maxStorage"]) * 1024 * 1024,
-                  VAULT_SERVICE_START_TIME: now,
-                  VAULT_SERVICE_END_TIME: end_time,
-                  VAULT_SERVICE_MODIFY_TIME: now,
-                  VAULT_SERVICE_STATE: VAULT_SERVICE_STATE_RUNNING}
-
-        cli.update_one_origin(DID_INFO_DB_NAME, VAULT_SERVICE_COL, col_filter, {"$set": update})
 
     def _get_remain_days(self, cur_plan, cur_end_timestamp, now_timestamp, plan):
         if cur_plan['amount'] < 0.01 or cur_plan['serviceDays'] == -1 or cur_end_timestamp == -1:
@@ -209,7 +208,7 @@ class VaultSubscription(metaclass=Singleton):
         """ Get the information from the service did. """
         logging.info(f'get_appdid_info: did, {did_str}')
         if not did_str:
-            raise BadRequestException(msg='get_appdid_info: did must provide.')
+            raise BadRequestException('get_appdid_info: did must provide.')
 
         did: DID = DID.from_string(did_str)
         doc: DIDDocument = did.resolve()

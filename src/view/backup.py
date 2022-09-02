@@ -46,10 +46,6 @@ class State(Resource):
 
             HTTP/1.1 401 Unauthorized
 
-        .. sourcecode:: http
-
-            HTTP/1.1 403 Forbidden
-
         """
         return self.backup_client.get_state()
 
@@ -60,6 +56,7 @@ class BackupRestore(Resource):
 
     def post(self):
         """ Backup or restore the data of the vault service.
+
         Backup the data to another hive node by the credential if contains URL parameter is **to=hive_node**.
 
         .. :quickref: 06 Backup; Backup & Restore
@@ -92,6 +89,10 @@ class BackupRestore(Resource):
 
             HTTP/1.1 403 Forbidden
 
+        .. sourcecode:: http
+
+            HTTP/1.1 507 Insufficient Storage
+
         Restore the data from the other hive node if the URL parameter is **from=hive_node**.
 
         **Request**:
@@ -122,17 +123,21 @@ class BackupRestore(Resource):
 
             HTTP/1.1 403 Forbidden
 
+        .. sourcecode:: http
+
+            HTTP/1.1 507 Insufficient Storage
+
         """
         to, fr, is_force = rqargs.get_str('to')[0], rqargs.get_str('from')[0], rqargs.get_bool('is_force')[0]
         credential, msg = params.get_str('credential')
         if msg or not credential:
-            raise InvalidParameterException(msg='Invalid parameter.')
+            raise InvalidParameterException('Invalid parameter.')
         if to == 'hive_node':
             return self.backup_client.backup(credential, is_force)
         elif fr == 'hive_node':
             return self.backup_client.restore(credential, is_force)
         else:
-            raise InvalidParameterException(msg='Invalid parameter, to or fr need be set.')
+            raise InvalidParameterException('Invalid parameter, to or fr need be set.')
 
 
 ###############################################################################
@@ -166,10 +171,6 @@ class ServerPromotion(Resource):
         .. sourcecode:: http
 
             HTTP/1.1 401 Unauthorized
-
-        .. sourcecode:: http
-
-            HTTP/1.1 403 Forbidden
 
         .. sourcecode:: http
 

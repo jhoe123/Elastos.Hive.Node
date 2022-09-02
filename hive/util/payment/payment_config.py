@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import traceback
 from pathlib import Path
 
 from hive.settings import hive_setting
@@ -15,18 +14,16 @@ class PaymentConfig:
 
     @staticmethod
     def init_config():
-        path = os.path.join(SRC_DIR, hive_setting.PAYMENT_PATH)
+        path = os.path.join(SRC_DIR, hive_setting.PAYMENT_CONFIG_PATH)
         config_file = Path(path)
         if not config_file.exists():
-            print("hive_setting.HIVE_PAYMENT_CONFIG dose not exist")
+            logging.getLogger('v1 PaymentConfig').info("hive_setting.HIVE_PAYMENT_CONFIG dose not exist")
         else:
-            print("hive_setting.HIVE_PAYMENT_CONFIG:"+path)
+            logging.getLogger('v1 PaymentConfig').info("hive_setting.HIVE_PAYMENT_CONFIG: " + hive_setting.PAYMENT_CONFIG_PATH)
         with open(path, 'r')as fp:
             json_data = json.load(fp)
-            print(fp)
             PaymentConfig.config_info = json_data
-            # print(json_data)
-            logging.getLogger("Hive Payment").info("Load payment config file:" + hive_setting.PAYMENT_PATH)
+            logging.getLogger("Hive Payment").info("Load payment config file:" + hive_setting.PAYMENT_CONFIG_PATH)
 
     @staticmethod
     def get_all_package_info():

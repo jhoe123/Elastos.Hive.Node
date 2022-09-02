@@ -49,30 +49,20 @@ def check_json_param(content, content_type, args):
     return None
 
 
-def populate_file_body(body, params):
-    if not body or not params \
-            or not isinstance(body, dict) or not isinstance(params, dict) \
-            or not body.get('path'):
-        return
-
-    value = body.get('path')
-    if not isinstance(value, str) or not value:
-        return
-
-    for k, v in params.items():
-        if not isinstance(k, str) or not isinstance(v, str):
-            continue
-        value = value.replace(f'$params.{k}', v)
-        value = value.replace(f'${{params.{k}}}', v)
-
-    if value != body.get('path'):
-        body['path'] = value
-
-
 def populate_with_params_values(did, app_did, options, params):
-    """
-    replace $params to the real value in options.
-    :return error message
+    """ Do some 'value' replacement on options (dict), 'key' will not change.
+    "options" will be updated.
+
+        - "$params.<parameter name>" (str) -> value (any type)
+        - "$caller_did" -> did
+        - "$caller_app_did" -> app_did
+
+    NOTE: Array nesting is not supported
+
+    :return error message, None means no error.
+
+    :deprecated:
+
     """
     if not options or not params:
         return None

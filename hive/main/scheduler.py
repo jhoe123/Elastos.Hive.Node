@@ -4,7 +4,7 @@ from datetime import datetime
 from flask_apscheduler import APScheduler
 
 from hive.util.payment.vault_order import check_pay_order_timeout_job, check_wait_order_tx_job
-from hive.util.payment.vault_service_manage import proc_expire_vault_job, count_vault_storage_job
+from hive.util.payment.vault_service_manage import proc_expire_vault_job
 
 scheduler = APScheduler()
 
@@ -26,13 +26,6 @@ def scheduler_resume():
 
 def scheduler_pause():
     scheduler.pause()
-
-
-@scheduler.task(trigger='interval', id='daily_routine_job', days=1)
-def daily_routine_job():
-    logging.getLogger("Hive scheduler").debug(f" daily_routine_job start: {str(datetime.utcnow())}")
-    count_vault_storage_job()
-    logging.getLogger("Hive scheduler").debug(f"daily_routine_job end: {str(datetime.utcnow())}")
 
 
 @scheduler.task(trigger='interval', id='expire_vault_job', days=1)

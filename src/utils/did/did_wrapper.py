@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import inspect
 import json
+import typing
 from datetime import datetime
 
 from src.utils.did.eladid import ffi, lib
@@ -16,7 +17,7 @@ The wrapper for eladid.so
 
 class ElaError:
     @staticmethod
-    def get(prompt=None):
+    def get(prompt=None) -> str:
         """ helper method to get error message from did.so """
         error_msg, c_msg = 'UNKNOWN ERROR', lib.DIDError_GetLastErrorMessage()
         if c_msg:
@@ -24,7 +25,7 @@ class ElaError:
         return error_msg if not prompt else f'{prompt}: {error_msg}'
 
     @staticmethod
-    def get_from_method(prompt=None):
+    def get_from_method(prompt=None, error_print=False):
         """
         Only used for class normal method, not static method.
         """
@@ -33,7 +34,12 @@ class ElaError:
         self = frame.frame.f_locals['self']
         cls_name = self.__class__.__name__
         mtd_name = frame[3]
-        return ElaError.get(f'{cls_name}.{mtd_name}{ppt}')
+        msg = ElaError.get(f'{cls_name}.{mtd_name}{ppt}')
+        if error_print:
+            with open('output.txt', 'w') as f:
+                c_f = ffi.cast("FILE *", f)
+                lib.DIDError_Print(c_f)
+        return msg
 
 
 class JWT:
@@ -47,6 +53,12 @@ class JWT:
         if not jwt:
             raise ElaDIDException(ElaError.get('JWT.parse'))
         return JWT(jwt)
+
+    def get_subject(self):
+        subject = lib.JWT_GetSubject(self.jwt)
+        if not subject:
+            raise ElaDIDException(ElaError.get_from_method())
+        return ffi.string(subject).decode()
 
     def get_claim_as_json(self, claim_key) -> str:
         claim_value = lib.JWT_GetClaimAsJson(self.jwt, claim_key.encode())
@@ -83,14 +95,22 @@ class JWTBuilder:
     def __init__(self, store, builder):
         self.store, self.builder = store, builder
 
-    def create_token(self, subject: str, audience_did_str: str, expire: int, claim_key: str, claim_value: any, claim_json: bool = True) -> str:
+    @staticmethod
+    def set_allowed_clock_skew(seconds: int):
+        """ Set the amount of clock skew in seconds to tolerate when verifying the
+        local time against the 'exp' and 'nbf' claims.
+        """
+        lib.JWTParser_SetAllowedClockSkewSeconds(seconds)
+
+    def create_token(self, subject: str, audience_did_str: str, expire: typing.Optional[int], claim_key: str, claim_value: any, claim_json: bool = True) -> str:
         ticks, sign_key = int(datetime.now().timestamp()), ffi.NULL
         lib.JWTBuilder_SetHeader(self.builder, "type".encode(), "JWT".encode())
         lib.JWTBuilder_SetHeader(self.builder, "version".encode(), "1.0".encode())
         lib.JWTBuilder_SetSubject(self.builder, subject.encode())
         lib.JWTBuilder_SetAudience(self.builder, audience_did_str.encode())
         lib.JWTBuilder_SetIssuedAt(self.builder, ticks)
-        lib.JWTBuilder_SetExpiration(self.builder, ticks + expire)
+        if expire is not None:
+            lib.JWTBuilder_SetExpiration(self.builder, expire)
         lib.JWTBuilder_SetNotBefore(self.builder, ticks)
         if claim_json:
             lib.JWTBuilder_SetClaimWithJson(self.builder, claim_key.encode(), claim_value.encode())
@@ -122,6 +142,12 @@ class Credential:
         if ret_val == -1:
             raise ElaDIDException(ElaError.get_from_method())
         return ret_val == 1
+
+    def get_issuer(self) -> 'DID':
+        issuer = lib.Credential_GetIssuer(self.vc)
+        if not issuer:
+            raise ElaDIDException(ElaError.get_from_method())
+        return DID(issuer)
 
     def get_expiration_date(self) -> int:
         expire_date = lib.Credential_GetExpirationDate(self.vc)
@@ -177,7 +203,16 @@ class Presentation:
         return ffi.string(ffi.gc(vp_json, lib.Mnemonic_Free)).decode()
 
     def is_valid(self) -> bool:
-        return lib.Presentation_IsValid(self.vp) == 1
+        result = lib.Presentation_IsValid(self.vp)
+        if result == -1:
+            raise ElaDIDException(ElaError.get_from_method())
+        return result == 1
+
+    def get_holder(self) -> 'DID':
+        holder = lib.Presentation_GetHolder(self.vp)
+        if not holder:
+            raise ElaDIDException(ElaError.get_from_method())
+        return DID(holder)
 
     def get_credential_count(self):
         count = lib.Presentation_GetCredentialCount(self.vp)
@@ -347,17 +382,19 @@ class DIDStore:
         """
         dids = []
 
-        @ffi.callback("int(DID *, void *)")
-        def did_callback(did, context):
+        @ffi.def_extern()
+        def ListDIDsCallback(did, context):
             # INFO: contains a terminating signal by a did with None.
             if did:
                 did_str = ffi.new('char[64]')
                 did_str = lib.DID_ToString(did, did_str, 64)
                 d = lib.DID_FromString(did_str)
                 dids.append(DID(ffi.gc(d, lib.DID_Destroy)))
+            # 0 means no error.
+            return 0
 
         filter_has_private_keys = 1
-        ret_value = lib.DIDStore_ListDIDs(self.store, filter_has_private_keys, did_callback, ffi.NULL)
+        ret_value = lib.DIDStore_ListDIDs(self.store, filter_has_private_keys, lib.ListDIDsCallback, ffi.NULL)
         if ret_value != 0:
             raise ElaDIDException(ElaError.get_from_method())
 

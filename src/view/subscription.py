@@ -3,9 +3,10 @@
 """
 The view of subscription module.
 """
-from flask import request
 from flask_restful import Resource
 
+from src.utils.http_exception import InvalidParameterException
+from src.utils.http_request import RV
 from src.modules.ipfs.ipfs_backup_server import IpfsBackupServer
 from src.modules.subscription.subscription import VaultSubscription
 
@@ -92,7 +93,10 @@ class VaultPricePlan(Resource):
             HTTP/1.1 404 Not Found
 
         """
-        subscription, name = request.args.get("subscription"), request.args.get("name")
+
+        subscription = RV.get_args().get_opt('subscription', str, 'all')
+        name = RV.get_args().get_opt('name', str, None)
+
         return self.vault_subscription.get_price_plans(subscription, name)
 
 
@@ -123,11 +127,13 @@ class VaultInfo(Resource):
 
             {
                  “service_did”: “did:elastos:ij8krAVRJitZKJmcCufoLHQjq7Mef3ZjTN"”,
-                 “storage_quota: 500，
+                 “pricing_plan”: “Rookie”,
+                 “storage_quota: 524288000,
                  “storage_used”: 20,
-                 “created”: 1602236316,   // epoch time.
-                 “updated”: 1604914928,
-                 “pricing_plan”: “rookie”
+                 "start_time": <the epoch time>,
+                 "end_time": <the epoch time>,
+                 “created”: <the epoch time>,
+                 “updated”: <the epoch time>
             }
 
         **Response Error**:
@@ -141,7 +147,11 @@ class VaultInfo(Resource):
             HTTP/1.1 404 Not Found
 
         """
-        return self.vault_subscription.get_info()
+
+        # for testing
+        files_used = RV.get_args().get_opt('files_used', bool, False)
+
+        return self.vault_subscription.get_info(files_used)
 
 
 class VaultAppStates(Resource):
@@ -234,11 +244,13 @@ class VaultSubscribe(Resource):
         .. code-block:: json
 
             {
-                “pricing_plan”: “<the using pricing plan>
                 “service_did”: <hive node service did>
+                “pricing_plan”: <the using pricing plan>
                 “storage_quota”: 50000000, # the max space of the storage for the vault service.
                 “storage_used”: 0,
-                “created”: <the epoch time>
+                "start_time": <the epoch time>,
+                "end_time": <the epoch time>,
+                “created”: <the epoch time>,
                 “updated”: <the epoch time>
             }
 
@@ -261,11 +273,43 @@ class VaultActivateDeactivate(Resource):
         self.vault_subscription = VaultSubscription()
 
     def post(self):
-        op = request.args.get('op')
+        """ Activate or deactivate the vault
+
+        The vault can only be read when it is deactivated.
+        This is very useful for do some operations on vault, like backup, promotion, ect.
+
+        .. :quickref: 02 Subscription; Activate&Deactivate
+
+        **Request**:
+
+        .. sourcecode:: http
+
+            None
+
+        **Response OK**:
+
+        .. sourcecode:: http
+
+            HTTP/1.1 201 Created
+
+        **Response Error**:
+
+        .. sourcecode:: http
+
+            HTTP/1.1 401 Unauthorized
+
+        .. sourcecode:: http
+
+            HTTP/1.1 404 Not Found
+
+        """
+        op = RV.get_args().get('op', str)
         if op == 'activation':
             return self.vault_subscription.activate()
         elif op == 'deactivation':
             return self.vault_subscription.deactivate()
+        else:
+            raise InvalidParameterException(f'Unsupported parameter "op" value {op}')
 
 
 class VaultUnsubscribe(Resource):
@@ -339,12 +383,14 @@ class BackupInfo(Resource):
         .. code-block:: json
 
             {
-                 “service_did”: “did:elastos:ij8krAVRJitZKJmcCufoLHQjq7Mef3ZjTN"”,
+                 “service_did”: “did:elastos:ij8krAVRJitZKJmcCufoLHQjq7Mef3ZjTN",
+                 "pricing_plan": "Rookie",
                  “storage_quota: 500，
                  “storage_used”: 20,
-                 “created”: 1602236316,   // epoch time.
-                 “updated”: 1604914928,
-                 “pricing_plan”: “rookie”
+                 “start_time”: 1602236316, // epoch time.
+                 “end_time”: 1602236316,
+                 “created”: 1602236316,
+                 “updated”: 1604914928
             }
 
         **Response Error**:
@@ -386,12 +432,14 @@ class BackupSubscribe(Resource):
         .. code-block:: json
 
             {
-                “pricing_plan”: “<the using pricing plan>
-                “service_did”: <hive node service did>
-                “storage_quota”: 50000000, # the max space of the storage for the vault service.
-                “storage_used”: 0,
-                “created”: <the epoch time>
-                “updated”: <the epoch time>
+                 “service_did”: “did:elastos:ij8krAVRJitZKJmcCufoLHQjq7Mef3ZjTN",
+                 "pricing_plan": "Rookie",
+                 “storage_quota: 500，
+                 “storage_used”: 20,
+                 “start_time”: 1602236316, // epoch time.
+                 “end_time”: 1602236316,
+                 “created”: 1602236316,
+                 “updated”: 1604914928
             }
 
         **Response Error**:
@@ -413,11 +461,13 @@ class BackupActivateDeactivate(Resource):
         self.backup_server = IpfsBackupServer()
 
     def post(self):
-        op = None
+        op = RV.get_args().get('op', str)
         if op == 'activation':
             return self.backup_server.activate()
         elif op == 'deactivation':
             return self.backup_server.deactivate()
+        else:
+            raise InvalidParameterException(f'Unsupported parameter "op" value {op}')
 
 
 class BackupUnsubscribe(Resource):

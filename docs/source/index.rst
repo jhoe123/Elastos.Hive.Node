@@ -15,6 +15,7 @@ Summary
   :undoc-static:
   :endpoints: v2_auth.sign_in, v2_auth.auth,
     subscription.vault_subscribe, subscription.vault_unsubscribe, subscription.vault_info, subscription.vault_app_states,
+    subscription.vault_activate_deactivate,
     subscription.backup_subscribe, subscription.backup_unsubscribe, subscription.backup_info, subscription.vault_price_plan,
     database.create_collection, database.delete_collection, database.insert_or_count,
     database.update, database.delete, database.find, database.query,
@@ -22,7 +23,7 @@ Summary
     scripting.register_script, scripting.call_script, scripting.call_script_url,
     scripting.delete_script, scripting.upload_file, scripting.download_file,
     backup.state, backup.backup_restore, backup.server_promotion,
-    payment.version, payment.place_order, payment.pay_order, payment.orders, payment.receipt_info,
+    payment.version, payment.place_order, payment.settle_order, payment.orders, payment.receipts,
     node.version, node.commit_id, node.info,
     provider.vaults, provider.backups, provider.filled_orders
 
@@ -86,6 +87,13 @@ get app stats
 .. autoflask:: src:get_docs_app()
   :undoc-static:
   :endpoints: subscription.vault_app_states
+
+activate & deactivate
+---------------------
+
+.. autoflask:: src:get_docs_app()
+  :undoc-static:
+  :endpoints: subscription.vault_activate_deactivate
 
 backup subscribe
 ----------------
@@ -295,12 +303,12 @@ place order
   :undoc-static:
   :endpoints: payment.place_order
 
-pay order
----------
+settle order
+------------
 
 .. autoflask:: src:get_docs_app()
   :undoc-static:
-  :endpoints: payment.pay_order
+  :endpoints: payment.settle_order
 
 get orders
 ----------
@@ -309,12 +317,12 @@ get orders
   :undoc-static:
   :endpoints: payment.orders
 
-get receipt
------------
+get receipts
+------------
 
 .. autoflask:: src:get_docs_app()
   :undoc-static:
-  :endpoints: payment.receipt_info
+  :endpoints: payment.receipts
 
 08 About
 ========
@@ -368,7 +376,26 @@ get payments
   :undoc-static:
   :endpoints: provider.filled_orders
 
-Appendix A: Collections
+Appendix A: Error Response
+==========================
+
+When failed with API calling as some error happened in the hive node,
+the error response will return, such as **HTTP/1.1 400 Bad Request**.
+
+The body of the error response should contain the following format content
+which will help caller debug the errors.
+
+.. sourcecode:: http
+
+    {
+        “error”: {
+            “message”: “the specific error description”, // [mandatory]
+            “internal_code”:  <number> // [optional],
+            ... //other customized items if it's necessary to report more information. [optional]
+        }
+    }
+
+Appendix B: Collections
 =======================
 
 auth_register
@@ -387,6 +414,23 @@ This common collection is for sign-in and auth.
         "appDid": <str>,
         "token": <str>,
         "token_expired": <int>
+    }
+
+application
+-----------
+
+The applications belong to user DID
+
+.. code-block:: json
+
+    {
+        "_id": ObjectId,
+        "user_did": <str>,
+        "app_did": <str>,
+        "database_name": <str>,
+        "state": "normal",
+        "created": <timestamp: int, seconds>,
+        "modified": <timestamp: int, seconds>
     }
 
 vault_service

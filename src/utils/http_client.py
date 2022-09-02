@@ -9,7 +9,7 @@ from pathlib import Path
 import requests
 
 from src.utils.file_manager import fm
-from src.utils.http_exception import BadRequestException
+from src.utils.http_exception import BadRequestException, HiveException
 
 
 class HttpClient:
@@ -18,11 +18,17 @@ class HttpClient:
 
     def __check_status_code(self, r, expect_code):
         if r.status_code != expect_code:
-            raise BadRequestException(msg=f'[HttpClient] Failed to {r.request.method} ({r.request.url}) '
-                                          f'with status code: {r.status_code}, {r.text}')
+            msg = r.text
+            try:
+                body = r.json()
+                msg = body['error']['message']
+            except Exception as e:
+                ...
+            raise BadRequestException(f'[HttpClient] Failed to {r.request.method}, ({r.request.url}) '
+                                          f'with status code: {r.status_code}, {msg}')
 
     def __raise_http_exception(self, url, method, e):
-        raise BadRequestException(msg=f'[HttpClient] Failed to {method} ({url}) with exception: {str(e)}')
+        raise BadRequestException(f'[HttpClient] Failed to {method}, ({url}) with exception: {str(e)}')
 
     def get(self, url, access_token, is_body=True, **kwargs):
         try:
@@ -30,6 +36,8 @@ class HttpClient:
             r = requests.get(url, headers=headers, timeout=self.timeout, **kwargs)
             self.__check_status_code(r, 200)
             return r.json() if is_body else r
+        except HiveException as e:
+            raise e
         except Exception as e:
             self.__raise_http_exception(url, 'GET', e)
 
@@ -37,17 +45,22 @@ class HttpClient:
         r = self.get(url, access_token, is_body=False, stream=True)
         fm.write_file_by_response(r, file_path, is_temp=True)
 
-    def post(self, url, access_token, body, is_json=True, is_body=True, success_code=201, **kwargs):
+    def post(self, url, access_token, body, is_json=True, is_body=True, success_code=201, timeout=None, **kwargs):
         try:
             headers = dict()
             if access_token:
                 headers["Authorization"] = "token " + access_token
             if is_json:
                 headers['Content-Type'] = 'application/json'
-            r = requests.post(url, headers=headers, json=body, timeout=self.timeout, **kwargs) \
+
+            timeout_ = timeout if timeout is not None else self.timeout
+
+            r = requests.post(url, headers=headers, json=body, timeout=timeout_, **kwargs) \
                 if is_json else requests.post(url, headers=headers, data=body, timeout=self.timeout, **kwargs)
             self.__check_status_code(r, success_code)
             return r.json() if is_body else r
+        except HiveException as e:
+            raise e
         except Exception as e:
             self.__raise_http_exception(url, 'POST', e)
 
@@ -69,6 +82,8 @@ class HttpClient:
             r = requests.put(url, headers=headers, data=body, timeout=self.timeout)
             self.__check_status_code(r, 200)
             return r.json() if is_body else r
+        except HiveException as e:
+            raise e
         except Exception as e:
             self.__raise_http_exception(url, 'PUT', e)
 
@@ -81,5 +96,7 @@ class HttpClient:
             headers = {"Authorization": "token " + access_token}
             r = requests.delete(url, headers=headers, timeout=self.timeout)
             self.__check_status_code(r, 204)
+        except HiveException as e:
+            raise e
         except Exception as e:
             self.__raise_http_exception(url, 'DELETE', e)

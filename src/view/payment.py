@@ -3,10 +3,11 @@
 """
 The view of payment module.
 """
-from flask import request
 from flask_restful import Resource
 
 from src.modules.payment.payment import Payment
+from src.utils.http_exception import InvalidParameterException
+from src.utils.http_request import RV
 
 
 class Version(Resource):
@@ -42,11 +43,8 @@ class Version(Resource):
 
             HTTP/1.1 401 Unauthorized
 
-        .. sourcecode:: http
-
-            HTTP/1.1 403 Forbidden
-
         """
+
         return self.payment.get_version()
 
 
@@ -56,6 +54,7 @@ class PlaceOrder(Resource):
 
     def put(self):
         """ Place an order for getting more storage space.
+
         The vault service MUST be subscribed before placing the order.
 
         .. :quickref: 07 Payment; Place Order
@@ -78,13 +77,47 @@ class PlaceOrder(Resource):
         .. code-block:: json
 
             {
-               "order_id":"5f910273dc81b7a0b3f585fc",
-               "subscription":"vault",
-               "pricing_name":"Rookie",
-               "ela_amount":5.0,
-               "ela_address":“912ec803b2ce49e4a541068d495ab570”,
-               "proof":“d444f18dc350fb334c811d9c4b0dfdf63f67df47”,
-               "create_time":1626217349
+                "interim_orderid": "<ObjectId str>",  // internal order id on hive node
+                "subscription": "vault",
+                "pricing_plan": "Rookie",
+                "paying_did": "did:elastos:iWFAUYhTa35c1f3335iCJvihZHx6q******",
+                "payment_amount": 15,  // ELA
+                "create_time": 1600073834,
+                "expiration_time": 1755161834,
+                "receiving_address": "0x60Dcc0f996963644102fC266b39F1116e5******",
+                "state": "normal",
+                "proof": "<jwt string>"
+            }
+
+        the decoded content of proof is like this:
+
+        .. code-block:: json
+
+            {
+               "header":{
+                    "typ": "JWT",
+                    "version": "1.0",
+                    "alg": "ES256",
+               },
+               "payload":{
+                    "ver": "1.0",
+                    "sub": "Hive Payment",
+                    "aud": "did:elastos:ixxxx",  // the user who need to make payment
+                    "iat": 1600073832,
+                    "iss": "did:elastos:iWFAUYhTa35c1fPe3iCJvihZHx6q*****",  // service did
+                    "order": {
+                        "interim_orderid": "<ObjectId str>",  // internal order id on hive node
+                        "subscription": "vault/backup",
+                        "pricing_plan": "rookie/advanced",
+                        "paying_did": "did:elastos:iWFAUYhTa35c1f3335iCJvihZHx6q******",
+                        "payment_amount": 14,  // ELA
+                        "create_time": 1600073834,
+                        "expiration_time": 1755161834,
+                        "receiving_address": "0x60Dcc0f996963644102fC266b39F1116e*******",
+                        "state": "normal",
+                    }
+               },
+               "signature": "rW6lGLpsGQJ7kojql78rX7p-MnBMBGEcBXYHkw_heisv7eEic574qL-0Immh0f0qFygNHY7RwhL47P*******"
             }
 
         **Response Error**:
@@ -99,33 +132,32 @@ class PlaceOrder(Resource):
 
         .. sourcecode:: http
 
-            HTTP/1.1 403 Forbidden
-
-        .. sourcecode:: http
-
             HTTP/1.1 404 Not Found
 
         """
-        return self.payment.place_order(request.get_json(force=True, silent=True))
+
+        subscription = RV.get_body().get('subscription', str)
+        pricing_name = RV.get_body().get('pricing_name', str)
+
+        return self.payment.place_order(subscription, pricing_name)
 
 
-class PayOrder(Resource):
+class SettleOrder(Resource):
     def __init__(self):
         self.payment = Payment()
 
     def post(self, order_id):
-        """ Pay for the order placed before with payment transaction id.
+        """ Notify the payment contract is already done and let hive node upgrade the user vault.
+
         After this, the vault will be upgraded for a specific pricing plan.
 
-        .. :quickref: 07 Payment; Pay the Order
+        .. :quickref: 07 Payment; Settle Order
 
         **Request**:
 
         .. sourcecode:: http
 
-            {
-               "transaction_id":“a677abfcc88c8126deedd719202e5092”
-            }
+            None
 
         **Response OK**:
 
@@ -136,13 +168,45 @@ class PayOrder(Resource):
         .. code-block:: json
 
             {
-               "receipt_id": "8f0e7a8a0ebe84271e079889c9c9b8b3",
-               "order_id": "912ec803b2ce49e4a541068d495ab570",
-               "transaction_id": "a677abfcc88c8126deedd719202e5092",
-               "pricing_name": "Rookie",
-               "paid_did": "did:elastos:insTmxdDDuS9wHHfeYD1h5C2onEHh3D8Vq",
-               "ela_amount": "5",
-               "proof": "d444f18dc350fb334c811d9c4b0dfdf63f67df47"
+                "receipt_id": “<ObjectId str>”,
+                "order_id": 1234,
+                "subscription": "vault",
+                "pricing_plan": "Rookie",
+                "payment_amount": "5",  // ELA
+                "paid_did": "did:elastos:insTmxdDDuS9wHHfeYD1h5C2onEH******”,
+                "create_time": 1600073834,
+                "receiving_address": "912ec803b2ce49e4a541068d49******",
+                "receipt_proof": "<jwt str>"
+            }
+
+        the decoded content of receipt_proof is like this:
+
+        .. code-block:: json
+
+            {
+                "header":{
+                    "typ": "JWT",
+                    "version": "1.0",
+                    "alg": "ES256"
+                },
+                "payload":{
+                    "ver": "1.0",
+                    "sub": "Hive Recepit",
+                    "aud": "did:elastos:ixxxx",  // the user who need to make payment
+                    "iat": 1600073834,
+                    "iss": "did:elastos:iWFAUYhTa35c1fPe3iCJvihZHx6******",  // service did
+                    "receipt":{
+                        "receipt_id": "<ObjectId str>",
+                        "order_id": 445,
+                        "subscription": "vault",
+                        "pricing_plan": "Rookie",
+                        "paid_did": "did:elastos:iWFAUYhTa35c1f3335iCJvihZHx6******",  // the did who paid for the order.
+                        "payment_amount": 15,  // ELA
+                        "create_time": 1600073834,
+                        "receiving_address": "0x60Dcc0f996963644102fC266b39F1116******"
+                    }
+                },
+                "signature": "rW6lGLpsGQJ7kojql78rX7p-MnBMBGEcBXYHkw_heisv7eEic574qL-0Immh0f0qFygNHY7RwhL47******"
             }
 
         **Response Error**:
@@ -157,14 +221,13 @@ class PayOrder(Resource):
 
         .. sourcecode:: http
 
-            HTTP/1.1 403 Forbidden
-
-        .. sourcecode:: http
-
             HTTP/1.1 404 Not Found
 
         """
-        return self.payment.pay_order(order_id, request.get_json(force=True, silent=True))
+
+        contract_order_id = RV.get_value('order_id', order_id, int)
+
+        return self.payment.settle_order(contract_order_id)
 
 
 class Orders(Resource):
@@ -180,8 +243,8 @@ class Orders(Resource):
 
         .. sourcecode:: http
 
-            subscription: <vault | backup | all>
-            order_id: <order_id>
+            subscription: <vault | backup | all>    # optional
+            order_id: <order_id>                    # optional
 
         **Response OK**:
 
@@ -192,17 +255,18 @@ class Orders(Resource):
         .. code-block:: json
 
             {
-               "orders":[
-                  {
-                     "order_id": "5f910273dc81b7a0b3f585fc",
-                     "subscription": "vault",
-                     "pricing_name": "Rookie",
-                     "ela_amount": "5",
-                     "ela_address": "912ec803b2ce49e4a541068d495ab570",
-                     "proof": "d444f18dc350fb334c811d9c4b0dfdf63f67df47",
-                     "create_time": 1626217349
-                  }
-               ]
+               "orders": [{
+                    "order_id": 1234,
+                    "subscription": "vault",
+                    "pricing_plan": "Rookie",
+                    "paying_did": "did:elastos:iWFAUYhTa35c1f3335iCJvihZHx6q******",
+                    "payment_amount": "5",  // ELA
+                    "create_time": 1600073834,
+                    "expiration_time": 1755161834,
+                    "receiving_address": "912ec803b2ce49e4a541068d49******",
+                    "state": "paid",
+                    "proof": "<jwt str>"
+                }]
             }
 
         **Response Error**:
@@ -217,18 +281,20 @@ class Orders(Resource):
 
         .. sourcecode:: http
 
-            HTTP/1.1 403 Forbidden
-
-        .. sourcecode:: http
-
             HTTP/1.1 404 Not Found
 
         """
-        subscription, order_id = request.args.get('subscription'), request.args.get('order_id')
-        return self.payment.get_orders(subscription, order_id)
+
+        subscription = RV.get_args().get_opt('subscription', str, None)
+        contract_order_id = RV.get_args().get_opt('order_id', int, None)
+
+        if subscription and subscription not in ['vault', 'backup']:
+            raise InvalidParameterException('Invalid parameter subscription: Can only be "vault" or "backup"')
+
+        return self.payment.get_orders(subscription, contract_order_id)
 
 
-class ReceiptInfo(Resource):
+class Receipts(Resource):
     def __init__(self):
         self.payment = Payment()
 
@@ -241,7 +307,7 @@ class ReceiptInfo(Resource):
 
         .. sourcecode:: http
 
-            order_id: <order_id>
+            order_id: <order_id>  # optional
 
         **Response OK**:
 
@@ -252,13 +318,17 @@ class ReceiptInfo(Resource):
         .. code-block:: json
 
             {
-                "receipt_id": “8f0e7a8a0ebe84271e079889c9c9b8b3”,
-                "order_id": “912ec803b2ce49e4a541068d495ab570”,
-                "transaction_id": “a677abfcc88c8126deedd719202e5092”,
-                "pricing_name": "Rookie",
-                "paid_did": "did:elastos:insTmxdDDuS9wHHfeYD1h5C2onEHh3D8Vq”,
-                "ela_amount": “5”,
-                "proof": "d444f18dc350fb334c811d9c4b0dfdf63f67df47”
+                "receipts": [{
+                    "receipt_id": “<ObjectId str>”,
+                    "order_id": 1234,
+                    "subscription": "vault",
+                    "pricing_plan": "Rookie",
+                    "payment_amount": "5",  // ELA
+                    "paid_did": "did:elastos:insTmxdDDuS9wHHfeYD1h5C2onEH******”,
+                    "create_time": 1600073834,
+                    "receiving_address": "912ec803b2ce49e4a541068d49******",
+                    "receipt_proof": "<jwt str>"
+                }]
             }
 
         **Response Error**:
@@ -273,11 +343,10 @@ class ReceiptInfo(Resource):
 
         .. sourcecode:: http
 
-            HTTP/1.1 403 Forbidden
-
-        .. sourcecode:: http
-
             HTTP/1.1 404 Not Found
 
         """
-        return self.payment.get_receipt_info(request.args.get('order_id'))
+
+        contract_order_id = RV.get_args().get_opt('order_id', int, None)
+
+        return self.payment.get_receipts(contract_order_id)

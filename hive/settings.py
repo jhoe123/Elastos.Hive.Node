@@ -3,6 +3,8 @@ from pathlib import Path
 from decouple import config, Config, RepositoryEnv
 import logging
 
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+
 
 class HiveSetting:
     def __init__(self):
@@ -40,7 +42,10 @@ class HiveSetting:
 
     @property
     def DATA_STORE_PATH(self):
-        return self.env_config('DATA_STORE_PATH', default='./data', cast=str)
+        value = self.env_config('DATA_STORE_PATH', default='./data', cast=str)
+        if value.startswith('/'):
+            return value
+        return os.path.join(BASE_DIR, value)
 
     @property
     def VAULTS_BASE_DIR(self):
@@ -67,12 +72,15 @@ class HiveSetting:
         return self.DID_DATA_BASE_DIR + '/cache'
 
     @property
-    def PAYMENT_PATH(self):
-        return self.env_config('PAYMENT_PATH', default='./payment_config.json', cast=str)
+    def PAYMENT_CONFIG_PATH(self):
+        path = self.env_config('PAYMENT_CONFIG_PATH', default='./payment_config.json', cast=str)
+        if path.startswith('/'):
+            return path
+        return os.path.join(BASE_DIR, path)
 
     @property
-    def PAYMENT_ADDRESS(self):
-        return self.env_config('PAYMENT_ADDRESS', default='EN9YK69ScA6WFgVQW3UZcmSRLSCStaU2pQ', cast=str)
+    def PAYMENT_RECEIVING_ADDRESS(self):
+        return self.env_config('PAYMENT_RECEIVING_ADDRESS', default='EN9YK69ScA6WFgVQW3UZcmSRLSCStaU2pQ', cast=str)
 
     @property
     def MONGODB_URI(self):

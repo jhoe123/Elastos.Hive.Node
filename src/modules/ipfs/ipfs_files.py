@@ -9,16 +9,14 @@ from pathlib import Path
 
 from flask import g
 
-from src import hive_setting
-from src.modules.ipfs.ipfs_cid_ref import IpfsCidRef
-from src.utils_v1.common import gene_temp_file_name
-from src.utils_v1.constants import VAULT_ACCESS_WR, VAULT_ACCESS_R
-from src.utils_v1.payment.vault_service_manage import update_used_storage_for_files_data
 from src.utils.consts import COL_IPFS_FILES, APP_DID, COL_IPFS_FILES_PATH, COL_IPFS_FILES_SHA256, \
     COL_IPFS_FILES_IS_FILE, SIZE, COL_IPFS_FILES_IPFS_CID, USR_DID
+from src.utils.http_exception import FileNotFoundException, AlreadyExistsException
+from src.utils_v1.common import gene_temp_file_name
 from src.utils.db_client import cli
 from src.utils.file_manager import fm
-from src.utils.http_exception import FileNotFoundException, AlreadyExistsException, BadRequestException
+from src.modules.ipfs.ipfs_cid_ref import IpfsCidRef
+from src.modules.subscription.vault import VaultManager
 
 
 class IpfsFiles:
@@ -31,10 +29,12 @@ class IpfsFiles:
         first, afterwards it also would be uploaded and pined to the paired IPFS node.
         4. The CID to the block data on IPFS would be managed as the field of metadata in the collection.
         """
-        pass
+        self.vault_manager = VaultManager()
 
     def upload_file(self, path, is_public: bool, script_name: str):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_WR)
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did).check_write_permission().check_storage_full()
+
         cid = self.upload_file_with_path(g.usr_did, g.app_did, path, is_public=is_public)
         if is_public:
             from src.modules.scripting.scripting import Scripting
@@ -45,7 +45,9 @@ class IpfsFiles:
         }
 
     def download_file(self, path):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_R)
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did)
+
         return self.download_file_with_path(g.usr_did, g.app_did, path)
 
     def delete_file(self, path):
@@ -55,11 +57,15 @@ class IpfsFiles:
         2. Unpin the file data from corresponding IPFS node.
         :param path:
         :return:
+
+        :v2 API:
         """
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_WR)
+        self.vault_manager.get_vault(g.usr_did).check_write_permission()
+
         self.delete_file_with_path(g.usr_did, g.app_did, path, check_exist=True)
 
     def delete_file_with_path(self, user_did, app_did, path, check_exist=False):
+        """ 'public' for v1 """
         col_filter = {USR_DID: user_did,
                       APP_DID: app_did,
                       COL_IPFS_FILES_PATH: path}
@@ -75,14 +81,18 @@ class IpfsFiles:
             cache_file.unlink()
 
         self.delete_file_metadata(user_did, app_did, path, doc[COL_IPFS_FILES_IPFS_CID])
-        update_used_storage_for_files_data(user_did, 0 - doc[SIZE])
+        self.vault_manager.update_user_files_size(user_did, 0 - doc[SIZE])
 
     def move_file(self, src_path, dst_path):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_WR)
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did).check_write_permission()
+
         return self.move_copy_file(g.usr_did, g.app_did, src_path, dst_path)
 
     def copy_file(self, src_path, dst_path):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_WR)
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did).check_write_permission().check_storage_full()
+
         return self.move_copy_file(g.usr_did, g.app_did, src_path, dst_path, is_copy=True)
 
     def list_folder(self, path):
@@ -90,38 +100,53 @@ class IpfsFiles:
         List the files under the specific directory.
         :param path: Empty means root folder.
         :return: File list.
+
+        :v2 API:
         """
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_R)
+        self.vault_manager.get_vault(g.usr_did)
+
         docs = self.list_folder_with_path(g.usr_did, g.app_did, path)
         return {
-            'value': list(map(lambda d: self._get_list_file_info_by_doc(d), docs))
+            'value': list(map(lambda d: self.__get_list_file_info_by_doc(d), docs))
         }
 
     def list_folder_with_path(self, user_did, app_did, path):
+        """ list files by folder with path, empty string means root path
+
+        'public' for v1
+        """
         col_filter = {USR_DID: user_did, APP_DID: app_did}
         if path:
+            # if specify the path, it will find the files start with folder name
             folder_path = path if path[len(path) - 1] == '/' else f'{path}/'
             col_filter[COL_IPFS_FILES_PATH] = {
                 '$regex': f'^{folder_path}'
             }
-        docs = cli.find_many(user_did, app_did, COL_IPFS_FILES, col_filter)
+
+        docs = cli.find_many(user_did, app_did, COL_IPFS_FILES, col_filter, throw_exception=False)
         if not docs and path:
+            # root path always exists
             raise FileNotFoundException(f'The directory {path} does not exist.')
+
         return docs
 
     def get_properties(self, path):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_R)
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did)
+
         metadata = self.get_file_metadata(g.usr_did, g.app_did, path)
         return {
             'name': metadata[COL_IPFS_FILES_PATH],
             'is_file': metadata[COL_IPFS_FILES_IS_FILE],
-            'size': metadata[SIZE],
-            'created': metadata['created'],
-            'updated': metadata['modified'],
+            'size': int(metadata[SIZE]),
+            'created': int(metadata['created']),
+            'updated': int(metadata['modified']),
         }
 
     def get_hash(self, path):
-        cli.check_vault_access(g.usr_did, VAULT_ACCESS_R)
+        """ :v2 API: """
+        self.vault_manager.get_vault(g.usr_did)
+
         metadata = self.get_file_metadata(g.usr_did, g.app_did, path)
         return {
             'name': metadata[COL_IPFS_FILES_PATH],
@@ -135,6 +160,8 @@ class IpfsFiles:
             2. Add this file onto IPFS node and return with CID;
             3. Create a new metadata with the CID and store them as document;
             4. Cached the temp file to specific cache directory.
+
+        'public' for v1, scripting service
 
         :param user_did: the user did
         :param app_did: the application did
@@ -156,6 +183,8 @@ class IpfsFiles:
         2. insert/update file metadata for the user.
         3. cache the file to the cache dir of the user's vault.
         4. cache the file to global cache folder if public
+
+        'public' for upgrading files service from v1 to v2 (local -> ipfs)
 
         :param user_did:
         :param app_did:
@@ -182,7 +211,7 @@ class IpfsFiles:
             increased_size = new_size - doc[SIZE]
 
         if increased_size and not only_import:
-            update_used_storage_for_files_data(user_did, increased_size)
+            self.vault_manager.update_user_files_size(user_did, increased_size)
 
         # cache the uploaded file.
         cache_file = fm.ipfs_get_cache_root(user_did) / cid
@@ -219,6 +248,7 @@ class IpfsFiles:
         return size
 
     def delete_file_metadata(self, user_did, app_did, rel_path, cid):
+        """ 'public' for upgrading files service from v1 to v2 (local -> ipfs) """
         col_filter = {USR_DID: user_did,
                       APP_DID: app_did,
                       COL_IPFS_FILES_PATH: rel_path}
@@ -228,11 +258,12 @@ class IpfsFiles:
         logging.info(f'[ipfs-files] Remove an existing file {rel_path}')
 
     def download_file_with_path(self, user_did, app_did, path: str):
-        """
-        Download the target file with the following steps:
-        1. Check target file already be cached, then just use this file, otherwise:
-        2. Download file from IPFS to cache directory;
-        3. Response to requrester with this cached file.
+        """ Download the target file with the following steps:
+            1. Check target file already be cached, then just use this file, otherwise:
+            2. Download file from IPFS to cache directory;
+            3. Response to requrester with this cached file.
+
+        'public' for v1, scripting service
 
         :param user_did: The user did.
         :param app_did: The application did
@@ -246,11 +277,12 @@ class IpfsFiles:
         return fm.get_response_by_file_path(cached_file)
 
     def move_copy_file(self, user_did, app_did, src_path, dst_path, is_copy=False):
-        """
-        Move/Copy file with the following steps:
-        1. Check source file existing and file with destination name existing. If not, then
-        2. Move or copy file;
-        3. Update metadata
+        """ Move/Copy file with the following steps:
+            1. Check source file existing and file with destination name existing. If not, then
+            2. Move or copy file;
+            3. Update metadata
+
+        'public' for v1
 
         :param user_did:
         :param app_did:
@@ -264,9 +296,9 @@ class IpfsFiles:
         src_doc = cli.find_one(user_did, app_did, COL_IPFS_FILES, src_filter)
         dst_doc = cli.find_one(user_did, app_did, COL_IPFS_FILES, dst_filter)
         if not src_doc:
-            raise FileNotFoundException(msg=f'The source file {src_path} not found, impossible to move/copy.')
+            raise FileNotFoundException(f'The source file {src_path} not found, impossible to move/copy.')
         if dst_doc:
-            raise AlreadyExistsException(msg=f'A file with destnation name {dst_path} already exists, impossible to move/copy')
+            raise AlreadyExistsException(f'A file with destnation name {dst_path} already exists, impossible to move/copy')
 
         if is_copy:
             metadata = {
@@ -280,7 +312,7 @@ class IpfsFiles:
             }
             IpfsCidRef(src_doc[COL_IPFS_FILES_IPFS_CID]).increase()
             cli.insert_one(user_did, app_did, COL_IPFS_FILES, metadata)
-            update_used_storage_for_files_data(user_did, src_doc[SIZE])
+            self.vault_manager.update_user_files_size(user_did, src_doc[SIZE])
         else:
             cli.update_one(user_did, app_did, COL_IPFS_FILES, src_filter,
                            {'$set': {COL_IPFS_FILES_PATH: dst_path}}, is_extra=True)
@@ -288,7 +320,7 @@ class IpfsFiles:
             'name': dst_path
         }
 
-    def _get_list_file_info_by_doc(self, file_doc):
+    def __get_list_file_info_by_doc(self, file_doc):
         return {
             'name': file_doc[COL_IPFS_FILES_PATH],
             'is_file': file_doc[COL_IPFS_FILES_IS_FILE],
@@ -296,6 +328,7 @@ class IpfsFiles:
         }
 
     def get_file_metadata(self, user_did, app_did, path: str, throw_exception=True):
+        """ 'public' for v1, scripting service """
         col_filter = {USR_DID: user_did,
                       APP_DID: app_did,
                       COL_IPFS_FILES_PATH: path}
@@ -303,9 +336,6 @@ class IpfsFiles:
                                 create_on_absence=True, throw_exception=throw_exception)
         if not metadata:
             if throw_exception:
-                raise FileNotFoundException(msg=f'No file metadata with path: {path} found')
+                raise FileNotFoundException(f"File '{path}' not found")
             return None
         return metadata
-
-    def get_ipfs_file_access_url(self, metadata):
-        return f'{hive_setting.IPFS_GATEWAY_URL}/ipfs/{metadata[COL_IPFS_FILES_IPFS_CID]}'

@@ -152,9 +152,9 @@ function start_direct () {
     LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver
 }
 
-function test_only() {
-    # Run tests_v1
+function test_v1() {
     pytest --disable-pytest-warnings -xs tests_v1/hive_auth_test.py
+    pytest --disable-pytest-warnings -xs tests_v1/hive_subscription_test.py
     pytest --disable-pytest-warnings -xs tests_v1/hive_mongo_test.py
     pytest --disable-pytest-warnings -xs tests_v1/hive_file_test.py
     pytest --disable-pytest-warnings -xs tests_v1/hive_scripting_test.py
@@ -162,10 +162,9 @@ function test_only() {
     # pytest --disable-pytest-warnings -xs tests_v1/hive_backup_test.py
     # pytest --disable-pytest-warnings -xs tests_v1/hive_internal_test.py # INFO: skip this
     # pytest --disable-pytest-warnings -xs tests_v1/hive_pubsub_test.py
+}
 
-    # Run tests
-    rm -f data/access_token
-    export HIVE_PORT=5000
+function test_v2() {
     pytest --disable-pytest-warnings -xs tests/about_test.py
     pytest --disable-pytest-warnings -xs tests/auth_test.py
     pytest --disable-pytest-warnings -xs tests/subscription_test.py
@@ -184,9 +183,10 @@ function test () {
     setup_venv
 
     rm -rf data
-    LD_LIBRARY_PATH="$PWD/hive/util/did/" python manage.py runserver &
+    LD_LIBRARY_PATH="$PWD/src/util/did/" python manage.py runserver &
 
-    test_only
+    test_v1
+    test_v2
     pkill -f manage.py
 }
 
@@ -216,14 +216,19 @@ case "$1" in
     test)
         test
         ;;
-    test_only)
+    test_v1)
         # INFO: run hive node and enter .venv first before run this command.
-        test_only
+        test_v1
+        ;;
+    test_v2)
+        # INFO: run hive node and enter .venv first before run this command.
+        # example: HIVE_PORT=5000 ./run.sh test_v2
+        test_v2
         ;;
     stop)
         stop
         ;;
     *)
-    echo "Usage: run.sh {docker|direct|test}"
+    echo "Usage: run.sh {setup|direct|docker|test|test_v1|test_v2|stop}"
     exit 1
 esac

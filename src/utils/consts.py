@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 
+"""
+This file is mainly for v2 APIs,
+other constant variables, for compatible, comes from v1 which defines in file 'src/utils_v1/constants.py'
+"""
+
+URL_V1 = '/api/v1'
 URL_V2 = '/api/v2'
 URL_SIGN_IN = '/did/signin'
 URL_AUTH = '/did/auth'
@@ -25,24 +31,39 @@ ORIGINAL_SIZE = 'original_size'
 IS_UPGRADED = 'is_upgraded'
 CID = 'cid'
 COUNT = 'count'
+VERSION = 'version'
 
+# for user did and app did relations
+COL_APPLICATION = 'application'
+COL_APPLICATION_USR_DID = USR_DID
+COL_APPLICATION_APP_DID = APP_DID
+COL_APPLICATION_DATABASE_NAME = 'database_name'
+COL_APPLICATION_STATE = STATE
+# extra: 'created' and 'modified'
+COL_APPLICATION_STATE_NORMAL = 'normal'
+# COL_APPLICATION_STATE_REMOVED = 'removed'
+
+# for the order collection
 COL_ORDERS = 'vault_order'
 COL_ORDERS_SUBSCRIPTION = 'subscription'
 COL_ORDERS_PRICING_NAME = 'pricing_name'
 COL_ORDERS_ELA_AMOUNT = 'ela_amount'
 COL_ORDERS_ELA_ADDRESS = 'ela_address'
+COL_ORDERS_EXPIRE_TIME = 'expire_time'
+COL_ORDERS_CONTRACT_ORDER_ID = 'contract_order_id'
 COL_ORDERS_PROOF = 'proof'
 COL_ORDERS_STATUS = 'status'
 
 COL_ORDERS_STATUS_NORMAL = 'normal'
+COL_ORDERS_STATUS_EXPIRED = 'expired'  # not paid
 COL_ORDERS_STATUS_PAID = 'paid'
 COL_ORDERS_STATUS_ARCHIVE = 'archive'
 
+# for receipt, contains some fields of order collection
 COL_RECEIPTS = 'vault_receipt'
-COL_RECEIPTS_ID = 'receipt_id'
 COL_RECEIPTS_ORDER_ID = 'order_id'
-COL_RECEIPTS_TRANSACTION_ID = 'transaction_id'
 COL_RECEIPTS_PAID_DID = 'paid_did'
+# order end
 
 COL_IPFS_FILES = 'ipfs_files'
 COL_IPFS_FILES_PATH = 'path'
@@ -65,7 +86,7 @@ BACKUP_REQUEST_ACTION_RESTORE = 'restore'
 
 BACKUP_REQUEST_STATE = 'state'
 BACKUP_REQUEST_STATE_STOP = 'stop'
-BACKUP_REQUEST_STATE_INPROGRESS = 'process'
+BACKUP_REQUEST_STATE_PROCESS = 'process'
 BACKUP_REQUEST_STATE_SUCCESS = 'success'
 BACKUP_REQUEST_STATE_FAILED = 'failed'
 BACKUP_REQUEST_STATE_MSG = 'state_msg'
@@ -96,7 +117,7 @@ URL_IPFS_BACKUP_GET_DBFILES = '/api/v2/ipfs-backup-internal/get_dbfiles'
 URL_IPFS_BACKUP_STATE = '/api/v2/ipfs-backup-internal/state'
 
 
-def get_unique_dict_item_from_list(dict_list: list):
+def get_unique_dict_item_from_list(dict_list: list) -> list:
     if not dict_list:
         return list()
     return list({frozenset(item.items()): item for item in dict_list}.values())

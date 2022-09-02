@@ -44,14 +44,18 @@ class HiveSetting:
 
     @property
     def DATA_STORE_PATH(self):
-        value = self.env_config('DATA_STORE_PATH', default='./data', cast=str)
-        if value.startswith('/'):
-            return value
-        return os.path.join(BASE_DIR, value)
+        path = self.env_config('DATA_STORE_PATH', default='./data', cast=str)
+        if path.startswith('/'):
+            return path
+        return os.path.join(BASE_DIR, path)
 
     @property
     def VAULTS_BASE_DIR(self):
         return self.DATA_STORE_PATH + '/vaults'
+
+    def get_user_vault_path(self, user_did: str) -> Path:
+        """ get the user's vault local path which contains cache files etc. """
+        return Path(self.VAULTS_BASE_DIR) / user_did.split(":")[2]
 
     @property
     def BACKUP_VAULTS_BASE_DIR(self):
@@ -86,13 +90,23 @@ class HiveSetting:
         return self.env_config('PAYMENT_ENABLED', default='True', cast=bool)
 
     @property
-    def PAYMENT_PATH(self):
-        name = self.env_config('PAYMENT_PATH', default='./payment_config.json', cast=str)
-        return os.path.join(BASE_DIR, name)
+    def PAYMENT_CONFIG_PATH(self):
+        path = self.env_config('PAYMENT_CONFIG_PATH', default='./payment_config.json', cast=str)
+        if path.startswith('/'):
+            return path
+        return os.path.join(BASE_DIR, path)
 
     @property
-    def PAYMENT_ADDRESS(self):
-        return self.env_config('PAYMENT_ADDRESS', default='EN9YK69ScA6WFgVQW3UZcmSRLSCStaU2pQ', cast=str)
+    def PAYMENT_CONTRACT_URL(self):
+        return self.env_config('PAYMENT_CONTRACT_URL', default='', cast=str)
+
+    @property
+    def PAYMENT_CONTRACT_ADDRESS(self):
+        return self.env_config('PAYMENT_CONTRACT_ADDRESS', default='', cast=str)
+
+    @property
+    def PAYMENT_RECEIVING_ADDRESS(self):
+        return self.env_config('PAYMENT_RECEIVING_ADDRESS', default='EN9YK69ScA6WFgVQW3UZcmSRLSCStaU2pQ', cast=str)
 
     @property
     def ATLAS_ENABLED(self):
@@ -140,7 +154,7 @@ class HiveSetting:
 
     @property
     def ACCESS_TOKEN_EXPIRED(self):
-        return 30 * 24 * 60 * 60
+        return 7 * 24 * 60 * 60
 
     @property
     def BACKUP_IS_SYNC(self):
